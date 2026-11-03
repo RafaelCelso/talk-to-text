@@ -1,201 +1,186 @@
-# Murmur YouTube
+# Talk-to-Text para macOS
 
-Push-to-talk dictation for macOS. Hold a key, talk, release — cleaned-up text lands in
-whatever text field has focus. A Wispr Flow-shaped app, built native and fully on-device.
+Ditado *push-to-talk* para macOS. Segure uma tecla, fale, solte — o texto limpo cai no campo de
+texto que estiver com o foco. Nativo e totalmente local.
 
-**Status:** working skeleton. Builds, launches, arms the hotkey, transcribes, injects.
-Branding and the LLM cleanup tier are the next passes.
-
----
-
-## Coexisting with another dictation app
-
-This app is built to run alongside other dictation tools without colliding with them, which
-is not automatic on macOS and is worth understanding before changing anything:
-
-- **Bundle ID `ai.pivotstudio.murmur-youtube`** — TCC keys Accessibility and Microphone
-  grants to the bundle ID, so granting or revoking a permission here has no effect on any
-  other app, and vice versa.
-- **Executable `MurmurYouTube`** — distinct enough that `pkill -x MurmurYouTube` cannot
-  match a differently-named binary. The `Makefile` only ever targets `$(EXEC)`.
-- **Hotkey is configurable** (Right ⌥ / fn / Right ⌘) precisely because another tool may
-  already own the key you'd reach for first. The event tap inspects only its own keycode
-  and passes everything else through untouched.
-
-If you run more than one dictation app, give each a different push-to-talk key. Two apps on
-the same key both record, and whichever injects text will fight the other.
+**Status:** funciona, mas não é mais o foco do projeto (o foco é o [app Windows](../windows/README.md)).
+Requer **macOS 26**. Não há Mac no fluxo de trabalho atual, então mudanças aqui não são
+compiladas localmente; o CI só compila e testa o alvo do dicionário.
 
 ---
 
-## Quick start
+## Convivendo com outro app de ditado
+
+O app foi feito para rodar ao lado de outras ferramentas de ditado sem colidir com elas, o que
+não é automático no macOS:
+
+- **Bundle ID `com.rafaelcelso.talktotext`** — o TCC associa as permissões de Acessibilidade e
+  Microfone ao bundle ID, então conceder ou revogar uma permissão aqui não afeta nenhum outro
+  app, e vice-versa.
+- **Executável `TalkToText`** — sem espaços e específico o bastante para `pkill -x TalkToText`
+  não atingir outro binário. O `Makefile` só mexe em `$(EXEC)`.
+- **O atalho é configurável** (⌥ direito / fn / ⌘ direito) justamente porque outra ferramenta
+  pode já usar a tecla que você escolheria primeiro. O event tap só inspeciona o próprio código
+  de tecla e deixa todo o resto passar intacto.
+
+Se você usa mais de um app de ditado, dê a cada um uma tecla diferente. Dois apps na mesma tecla
+gravam juntos, e o texto injetado por um briga com o do outro.
+
+---
+
+## Começo rápido
 
 ```bash
-make install     # builds, bundles, signs, copies to /Applications, launches
+make install     # compila, empacota, assina, copia para /Applications e abre
 ```
 
-Then grant two permissions — neither is optional, and neither can be requested silently:
+Depois conceda duas permissões — nenhuma é opcional, e nenhuma pode ser pedida em silêncio:
 
-| Permission | Where | Needed for |
+| Permissão | Onde | Para quê |
 |---|---|---|
-| **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | The `CGEventTap` that sees the hotkey, and the AX text insert |
-| **Microphone** | Prompted on first dictation | Audio capture |
+| **Acessibilidade** | Ajustes do Sistema ▸ Privacidade e Segurança ▸ Acessibilidade | O `CGEventTap` que vê o atalho, e a inserção de texto via AX |
+| **Microfone** | Pedida no primeiro ditado | Captura de áudio |
 
-Restart Murmur YouTube after granting Accessibility. Then hold **Right ⌥** and talk.
+Reabra o Talk-to-Text depois de conceder a Acessibilidade. Então segure **⌥ direito** e fale.
 
-### Why grants survive rebuilds here
+> Builds anteriores usavam outro nome e outro bundle ID. Depois de atualizar, as permissões
+> precisam ser concedidas de novo, e o dicionário e o histórico ficam numa pasta nova de
+> Application Support (`TalkToText`).
 
-TCC stores a *code-signing requirement* per entry, not just a path. An ad-hoc signature
-changes on every build, so the rebuilt binary stops satisfying the stored requirement —
-and the symptom is nasty: the Accessibility toggle still **shows as on** while the app is
-reported untrusted, and flipping it changes nothing because the stale row is the problem.
+### Por que as permissões sobrevivem às recompilações
 
-The `Makefile` therefore signs with a stable Developer ID (auto-detected via
-`security find-identity`, falling back to ad-hoc). Verified: rebuild + reinstall keeps both
-grants with no re-prompt.
+O TCC guarda um *requisito de assinatura* por entrada, não só um caminho. Uma assinatura ad-hoc
+muda a cada build, então o binário recompilado deixa de satisfazer o requisito guardado — e o
+sintoma é traiçoeiro: a chave de Acessibilidade **continua ligada** enquanto o app é tratado
+como não confiável, e alternar a chave não muda nada porque o problema é a linha antiga.
 
-If a grant ever does get wedged, reset that one row and re-add — never toggle:
+Por isso o `Makefile` assina com um Developer ID estável (detectado via
+`security find-identity`, com ad-hoc como alternativa). Com ele, recompilar e reinstalar mantém
+as duas permissões sem pedir de novo.
+
+Se uma permissão travar, redefina só aquela linha e adicione de novo — nunca alterne a chave:
 
 ```bash
-tccutil reset Accessibility ai.pivotstudio.murmur-youtube
-tccutil reset Microphone   ai.pivotstudio.murmur-youtube
+tccutil reset Accessibility com.rafaelcelso.talktotext
+tccutil reset Microphone   com.rafaelcelso.talktotext
 ```
 
-Always pass the bundle ID. A bare `tccutil reset Accessibility` wipes **every** app on the
-machine. Then quit System Settings entirely (⌘Q) before reopening — that pane caches its
-list and will otherwise show the row you just deleted.
+Sempre passe o bundle ID. Um `tccutil reset Accessibility` sem ele apaga a permissão de
+**todos** os apps da máquina. Depois feche os Ajustes do Sistema por completo (⌘Q) antes de
+reabrir — esse painel guarda a lista em cache e mostraria a linha que você acabou de apagar.
 
-> **Keep the build out of iCloud.** `~/Desktop` and `~/Documents` are file-provider synced
-> on this machine; the sync engine can materialize/dematerialize files inside an `.app` and
-> corrupt its signature. `make install` puts the running copy in `/Applications`.
+> **Mantenha o build fora do iCloud.** `~/Desktop` e `~/Documents` podem ser sincronizados por
+> file provider; o sincronizador pode materializar/desmaterializar arquivos dentro de um `.app`
+> e corromper a assinatura. `make install` coloca a cópia em uso em `/Applications`.
 
-Other targets: `make app` (bundle only), `make run` (run in place), `make clean`.
+Outros alvos: `make app` (só o pacote), `make run` (roda no lugar), `make clean`.
 
 ---
 
-## Architecture
+## Arquitetura
 
 ```
- hold key ─► HotkeyMonitor ──► DictationController ◄── Settings
-                                │
-                     ┌──────────┼──────────┐
-                     ▼          ▼          ▼
-              AudioCapture  HUDPanel   TranscriptionEngine
-                     │                      │
-                (AudioChunk) ──ordered──► AppleSpeechEngine
-                                            │
-                                       (transcript)
-                                            ▼
-                                      TextFormatter
-                                            ▼
-                                      TextInjector ─► focused app
+ segura tecla ─► HotkeyMonitor ──► DictationController ◄── Settings
+                                    │
+                         ┌──────────┼──────────┐
+                         ▼          ▼          ▼
+                  AudioCapture  HUDPanel   TranscriptionEngine
+                         │                      │
+                    (AudioChunk) ──ordenado──► AppleSpeechEngine / ParakeetEngine
+                                                │
+                                          (transcrição)
+                                                ▼
+                                          TextFormatter
+                                                ▼
+                                          TextInjector ─► app em foco
 ```
 
-### Decisions worth knowing
+### Decisões que vale conhecer
 
-**The HUD must never take focus.** `HUDPanel` is a `.nonactivatingPanel` with
-`canBecomeKey == false`. This is the load-bearing detail of the whole app: if the overlay
-took key status, the user's text field would lose focus and there'd be nothing left to
-inject into. Everything else is replaceable; this isn't.
+**O HUD nunca pode pegar o foco.** `HUDPanel` é um `.nonactivatingPanel` com
+`canBecomeKey == false`. É o detalhe estrutural do app inteiro: se o overlay virasse a janela
+principal, o campo de texto do usuário perderia o foco e não sobraria onde injetar. Todo o resto
+é substituível; isto não.
 
-**The hotkey needs a `CGEventTap`, not `NSEvent`.** `fn` and left/right modifier
-discrimination don't surface through `NSEvent.addGlobalMonitorForEvents` or the Carbon
-hotkey API. A session event tap is the only way to see them — which is why Accessibility
-permission is a hard requirement rather than a nicety.
+**O atalho precisa de um `CGEventTap`, não de `NSEvent`.** `fn` e a distinção entre
+modificadores esquerdo/direito não aparecem via `NSEvent.addGlobalMonitorForEvents` nem pela API
+de atalhos do Carbon. Um event tap de sessão é o único jeito de vê-los — por isso a permissão de
+Acessibilidade é obrigatória, não um extra.
 
-**Audio ordering is explicit.** `AudioCapture` yields into an `AsyncStream` drained by a
-single task. Spawning a `Task` per buffer would be simpler and would silently corrupt the
-transcript, because unstructured tasks have no ordering guarantee.
+**A ordem do áudio é explícita.** `AudioCapture` entrega para um `AsyncStream` drenado por uma
+única task. Criar uma `Task` por buffer seria mais simples e corromperia a transcrição em
+silêncio, porque tasks não estruturadas não garantem ordem.
 
-**Buffers are copied, never borrowed.** `AVAudioEngine` recycles the buffer it hands to a
-tap the instant the callback returns. `AudioChunk`'s `@unchecked Sendable` is only sound
-because `AudioCapture` always allocates fresh storage before handing off.
+**Buffers são copiados, nunca emprestados.** O `AVAudioEngine` recicla o buffer que entrega ao
+tap assim que o callback retorna. O `@unchecked Sendable` de `AudioChunk` só é seguro porque
+`AudioCapture` sempre aloca memória nova antes de repassar.
 
-**Two swappable seams.** `TranscriptionEngine` and `TextFormatter` are protocols so the
-two components most likely to change can change without touching anything else.
+**Duas costuras substituíveis.** `TranscriptionEngine` e `TextFormatter` são protocolos, para
+que os dois componentes com mais chance de mudar possam mudar sem mexer no resto.
 
-### Layout
+### Estrutura
 
 ```
-Sources/MurmurYouTube/
-├── MurmurYouTubeApp.swift              @main, AppDelegate, MenuBarExtra
+Sources/TalkToTextDictionary/     correções e biasing (contrato compartilhado com o Windows)
+Sources/TalkToText/
+├── TalkToTextApp.swift           @main, AppDelegate, MenuBarExtra
 ├── Core/
-│   ├── DictationController.swift   state machine, wires everything
-│   ├── HotkeyMonitor.swift         CGEventTap on .flagsChanged
-│   ├── AudioCapture.swift          AVAudioEngine tap + format conversion + RMS
-│   └── TextInjector.swift          AX insert, pasteboard+⌘V fallback
+│   ├── DictationController.swift   máquina de estados, liga tudo
+│   ├── HotkeyMonitor.swift         CGEventTap em .flagsChanged
+│   ├── AudioCapture.swift          tap do AVAudioEngine + conversão de formato + RMS
+│   ├── TextInjector.swift          inserção via AX, alternativa pasteboard+⌘V
+│   ├── EngineComparison.swift      modo de comparação entre motores
+│   └── WisprTrigger.swift
+├── Dictionary/
+│   └── DictionaryStore.swift
 ├── Transcription/
-│   ├── TranscriptionEngine.swift   protocol + AudioChunk
-│   └── AppleSpeechEngine.swift     SpeechAnalyzer / SpeechTranscriber
+│   ├── TranscriptionEngine.swift   protocolo + AudioChunk
+│   ├── AppleSpeechEngine.swift     SpeechAnalyzer / SpeechTranscriber
+│   ├── ParakeetEngine.swift        Parakeet via FluidAudio
+│   └── WisprReader.swift
 ├── Formatting/
-│   └── TextFormatter.swift         protocol + RuleBasedFormatter
+│   ├── TextFormatter.swift         protocolo + RuleBasedFormatter
+│   └── FoundationModelFormatter.swift
 ├── UI/
-│   ├── HUDPanel.swift              non-activating floating panel
-│   └── HUDView.swift               waveform + live transcript, Brand palette
+│   ├── MainWindow.swift, SettingsWindow.swift, ComparisonWindow.swift
+│   ├── HUDPanel.swift              painel flutuante que não ativa
+│   ├── HUDView.swift               forma de onda + transcrição ao vivo
+│   ├── DesignSystem.swift, Equipment.swift, DictionaryPanel.swift, DashboardHTML.swift
 └── Support/
-    ├── Settings.swift, Permissions.swift, Log.swift
+    └── Settings.swift, Permissions.swift, Log.swift, RunLog.swift
 ```
 
 ---
 
-## Speech engine
+## Motor de fala
 
-Default is Apple's **`SpeechAnalyzer` / `SpeechTranscriber`**, new in macOS 26: no
-dependency, no bundled model, no cloud path, real streaming with `.volatileResults` so
-text appears while you're still talking. The OS downloads and manages model assets, so the
-first run for a locale may pause on `AssetInstallationRequest`.
+O padrão é o **`SpeechAnalyzer` / `SpeechTranscriber`** da Apple, novo no macOS 26: sem
+dependência, sem modelo embutido, sem nuvem, streaming de verdade com `.volatileResults` para o
+texto aparecer enquanto você ainda fala. O SO baixa e gerencia os modelos, então a primeira
+execução num idioma pode pausar em `AssetInstallationRequest`.
 
-The intended upgrade is **Parakeet v3** via FluidAudio (CoreML on the Neural Engine) —
-measurably better English WER, ~110× realtime, ~66 MB resident. Implementing
-`TranscriptionEngine` is the entire cost of switching; `DictationController` doesn't
-change.
+A alternativa é o **Parakeet v3** via FluidAudio (CoreML no Neural Engine) — WER em inglês
+mensuravelmente melhor, ~110× o tempo real, ~66 MB residentes. Veja o
+[benchmark](../bench/README.md).
 
 | | Apple SpeechTranscriber | Parakeet v3 (FluidAudio) | Whisper large-v3 (WhisperKit) |
 |---|---|---|---|
-| Dependency | none | SwiftPM | SwiftPM |
-| Model download | OS-managed | ~600 MB | ~1.5 GB |
-| English accuracy | good | best | good |
-| Languages | many | 25 | 99 |
-| Latency | low | ~80 ms | 200–500 ms |
+| Dependência | nenhuma | SwiftPM | SwiftPM |
+| Download do modelo | gerenciado pelo SO | ~600 MB | ~1,5 GB |
+| Precisão em inglês | boa | a melhor | boa |
+| Idiomas | muitos | 25 | 99 |
+| Latência | baixa | ~80 ms | 200–500 ms |
 
 ---
 
-## Not built yet
+## O que não está feito no macOS
 
-1. **LLM cleanup tier.** `RuleBasedFormatter` strips fillers, fixes spacing, capitalizes
-   sentences and adds terminal punctuation — genuinely useful, entirely deterministic. The
-   real win is a second `TextFormatter` backed by Apple's on-device Foundation Models
-   (macOS 26) for tone, list formatting, and honoring spoken corrections, with Claude as an
-   optional higher-quality tier.
-2. **Command Mode.** Select text, hold a second hotkey, say "make this more formal."
-   Needs AX read of `kAXSelectedTextAttribute` plus an LLM round-trip.
-3. **Personal dictionary.** Names and jargon the ASR keeps missing. `SpeechAnalyzer`
-   supports this through `AnalysisContext` / `SFCustomLanguageModelData`.
-4. **Branding.** `Brand` in `HUDView.swift` is a two-color placeholder gradient. App icon,
-   real palette, HUD motion design, onboarding.
-5. **Onboarding.** A first-run window that walks through both permissions instead of
-   relying on the menu's "Grant…" items.
-6. **Developer ID signing + notarization.** Ends the TCC-reset churn and makes the app
-   distributable.
+1. **Modo comando.** Selecionar texto, segurar uma segunda tecla, dizer "deixa mais formal".
+   Precisa ler `kAXSelectedTextAttribute` via AX mais uma ida e volta a um LLM. (Existe no
+   Windows.)
+2. **Configuração inicial.** Uma janela de primeiro uso que guie pelas duas permissões em vez de
+   depender dos itens "Conceder…" do menu.
+3. **Notarização.** Encerra o vaivém de redefinir o TCC e torna o app distribuível.
 
----
-
-## Verified
-
-Driven with a synthetic Right ⌥ hold (`scratchpad/ptt/ptt2.swift` posts `flagsChanged`
-events) and confirmed via `/usr/bin/log show --predicate 'subsystem ==
-"ai.pivotstudio.murmur-youtube"'`:
-
-- Builds clean under Swift 6 strict concurrency.
-- Signs with Developer ID; grants survive rebuild + reinstall.
-- Launches as an accessory app, no Dock icon, menu bar item present.
-- Event tap arms on grant without a restart (the poller catches it).
-- Full state machine: `starting → listening → finishing → idle`, no errors.
-- `SpeechAnalyzer` starts; models already installed, no download stall.
-- Audio capture runs and converts native 48 kHz → 16 kHz for the engine.
-- HUD renders bottom-center at `{{790, 96}, {340, 76}}` without taking focus.
-- Silence produces an empty transcript and injects nothing.
-
-**Not yet verified:** speech → transcript → cleanup → injection. Synthetic key events
-can't produce audio, so this needs a human to hold the key and talk.
-
-> `log` is shadowed in this shell — use `/usr/bin/log` explicitly or it returns nothing.
+> `log` pode estar sombreado no shell — use `/usr/bin/log` explicitamente. Os logs do app usam o
+> subsystem `com.rafaelcelso.talktotext`.

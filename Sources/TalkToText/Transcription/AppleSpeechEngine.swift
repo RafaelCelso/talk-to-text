@@ -1,4 +1,4 @@
-import MurmurDictionary
+import TalkToTextDictionary
 import AVFoundation
 import Foundation
 import Speech

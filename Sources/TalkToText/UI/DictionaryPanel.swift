@@ -1,4 +1,4 @@
-import MurmurDictionary
+import TalkToTextDictionary
 import AppKit
 import SwiftUI
 

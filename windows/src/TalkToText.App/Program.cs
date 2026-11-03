@@ -58,13 +58,6 @@ public static class Program
 
         Instance = instance;
 
-        // Before anything opens a file: settings, history and the model all live in the
-        // data folder, and the first run after the rename must find them in the new place.
-        if (Core.DataFolder.MigrateLegacy())
-        {
-            DiagnosticLog.Write($"moved data from {Core.DataFolder.LegacyPath} to {Core.DataFolder.Path}");
-        }
-
         AppDomain.CurrentDomain.UnhandledException +=
             (_, e) => DiagnosticLog.Write($"unhandled: {e.ExceptionObject}");
         TaskScheduler.UnobservedTaskException +=

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The design system for Murmur YouTube.
+/// The design system for Talk-to-Text.
 ///
 /// Direction: 1980s portable field recorders and cassette decks — Sony TC-D5, Marantz PMD,
 /// Nakamichi, Braun. Equipment, not theme. Every value a view needs lives here; components

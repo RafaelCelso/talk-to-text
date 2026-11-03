@@ -1,60 +1,68 @@
-# Getting the speech model on Windows
+# Obtendo o modelo de fala no Windows
 
-Windows has **no equivalent to Apple's `SpeechAnalyzer`**. On macOS that framework ships with
-the OS, manages its own model assets, and needs no download. There is nothing comparable on
-Windows — so Parakeet is not the optional upgrade it is on macOS, it is the *only* engine.
-The app cannot transcribe until these files are on disk.
+O Windows **não tem equivalente ao `SpeechAnalyzer` da Apple**. No macOS esse framework vem com
+o sistema, gerencia seus próprios modelos e não precisa de download. Não existe nada parecido no
+Windows — então o Parakeet não é o upgrade opcional que é no macOS, é o *único* motor. O app não
+consegue transcrever até esses arquivos estarem no disco.
 
-This page is written to be followed by a person **or handed to a coding agent verbatim**.
+> **O instalador já faz isso** (baixa a v3 com verificação SHA-256). Esta página serve para
+> instalar o modelo à mão, conferir uma instalação ou entender o que está em jogo.
+
+Esta página foi escrita para ser seguida por uma pessoa **ou entregue tal como está a um agente
+de código**.
 
 ---
 
-## What you are downloading
+## O que você está baixando
 
-**NVIDIA Parakeet TDT 0.6B**, converted to ONNX and quantized to int8, run through
+**NVIDIA Parakeet TDT 0.6B**, convertido para ONNX e quantizado em int8, rodando via
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx).
 
 | | |
 |---|---|
-| Download size | **~661 MB** |
-| Working set once loaded | **~2 GB** — see [Memory](#memory) |
-| Speed | ~40× real time on CPU (a 10 s utterance transcribes in ~250 ms) |
-| Network | Needed **once**, for the download. Transcription is fully offline. |
-| Licence | Model weights **CC-BY-4.0**; sherpa-onnx **Apache-2.0**. Commercial use permitted with attribution — see [Licence](#licence). |
+| Tamanho do download | **~661 MB** |
+| Memória em uso depois de carregado | **~2 GB** — veja [Memória](#memory) |
+| Velocidade | ~40× o tempo real na CPU (uma fala de 10 s é transcrita em ~250 ms) |
+| Rede | Necessária **uma vez**, para o download. A transcrição é totalmente offline. |
+| Licença | Pesos do modelo **CC-BY-4.0**; sherpa-onnx **Apache-2.0**. Uso comercial permitido com atribuição — veja [Licença](#licence). |
 
-Two variants. Pick one:
+Duas variantes. Escolha uma:
 
-| Repo | Languages | `tokens.txt` |
+| Repositório | Idiomas | `tokens.txt` |
 |---|---|---|
-| `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8` | **English only** | 1025 entries |
-| `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` | **25 languages** | 8193 entries |
+| `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8` | **Só inglês** | 1025 entradas |
+| `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` | **25 idiomas** (inclui português) | 8193 entradas |
 
-**Default to v2** unless you dictate in something other than English. Same encoder size, same
-speed; v3 simply carries a larger vocabulary.
+**Para português, use a v3** — é a que o instalador baixa. A v2 só serve se você dita apenas em
+inglês. Mesmo tamanho de encoder, mesma velocidade; a v3 simplesmente tem um vocabulário maior.
+
+Os exemplos abaixo usam a v2; para a **v3**, troque `parakeet-v2` → `parakeet-v3` e
+`...-v2-int8` → `...-v3-int8`.
 
 ---
 
-## Where the files go
+## Onde os arquivos ficam
 
 ```
 %LOCALAPPDATA%\TalkToText\models\parakeet-v2\
     encoder.int8.onnx     ~652 MB
     decoder.int8.onnx     ~7 MB
-    joiner.int8.onnx      ~1.7 MB
+    joiner.int8.onnx      ~1,7 MB
     tokens.txt            ~9 KB
 ```
 
-The app looks here first, then next to the executable (`AppContext.BaseDirectory\models\`).
-Settings → Model shows the resolved path and whether the files were found.
+O app procura aqui primeiro, depois ao lado do executável (`AppContext.BaseDirectory\models\`).
+Configurações → Modelo mostra o caminho encontrado e se os arquivos estão lá.
 
-> **Do not put these inside the app folder if you install to `Program Files`.** That location
-> needs administrator rights to write, so the app cannot download or update the model itself.
+> **Não coloque esses arquivos dentro da pasta do app se instalar em `Program Files`.** Esse
+> local exige direitos de administrador para escrita, então o app não consegue baixar nem
+> atualizar o modelo sozinho.
 
 ---
 
-## Option A — PowerShell, no extra tools *(recommended)*
+## Opção A — PowerShell, sem ferramentas extras *(recomendado)*
 
-Nothing to install. Paste this into PowerShell:
+Nada para instalar. Cole isto no PowerShell:
 
 ```powershell
 $dir = "$env:LOCALAPPDATA\TalkToText\models\parakeet-v2"
@@ -63,21 +71,18 @@ $base = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2
 New-Item -ItemType Directory -Force $dir | Out-Null
 
 foreach ($f in "encoder.int8.onnx","decoder.int8.onnx","joiner.int8.onnx","tokens.txt") {
-    Write-Host "Downloading $f ..."
+    Write-Host "Baixando $f ..."
     curl.exe -L --fail --progress-bar -o "$dir\$f" "$base/$f"
 }
 
 Get-ChildItem $dir | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 ```
 
-For **v3**, change `parakeet-v2` → `parakeet-v3` and `...-v2-int8` → `...-v3-int8`.
+> **`curl.exe`, com o `.exe`.** `curl` sozinho no PowerShell é um alias para
+> `Invoke-WebRequest`, que é outro programa. E se usar `Invoke-WebRequest`, você **precisa**
+> passar `-OutFile` — sem isso o PowerShell guarda os 650 MB inteiros na memória.
 
-> **`curl.exe`, with the `.exe`.** Bare `curl` in PowerShell is an alias for
-> `Invoke-WebRequest`, which is a different program. And if you do use
-> `Invoke-WebRequest`, you **must** pass `-OutFile` — without it PowerShell buffers the
-> whole 650 MB in memory.
-
-Expected output:
+Saída esperada:
 
 ```
 Name                MB
@@ -90,9 +95,9 @@ tokens.txt          0.0
 
 ---
 
-## Option B — Hugging Face CLI
+## Opção B — CLI do Hugging Face
 
-The command is **`hf`**. `huggingface-cli` is deprecated.
+O comando é **`hf`**. O `huggingface-cli` está obsoleto.
 
 ```powershell
 pip install -U "huggingface_hub[cli]"
@@ -102,47 +107,47 @@ hf download csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 `
   --local-dir "$env:LOCALAPPDATA\TalkToText\models\parakeet-v2"
 ```
 
-**No Hugging Face token is required.** These repositories are public. If you are prompted to
-log in, you have a typo in the repo name.
+**Não é preciso token do Hugging Face.** Esses repositórios são públicos. Se pedir login, há um
+erro de digitação no nome do repositório.
 
 ---
 
-## Option C — git
+## Opção C — git
 
 ```powershell
 git lfs install
 git clone https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
 ```
 
-Clones extra files you don't need (fp32 weights, test audio) — roughly 3 GB. Fine if you
-already have `git-lfs`; otherwise use Option A.
+Clona arquivos extras que você não precisa (pesos fp32, áudios de teste) — cerca de 3 GB. Tudo
+bem se você já tem `git-lfs`; senão, use a Opção A.
 
 ---
 
-## Verifying it worked
+## Conferindo se deu certo
 
 ```powershell
 $dir = "$env:LOCALAPPDATA\TalkToText\models\parakeet-v2"
 $expect = @{
-  "encoder.int8.onnx" = 652183000    # ±1 MB; exact size differs slightly between v2 and v3
+  "encoder.int8.onnx" = 652183000    # ±1 MB; o tamanho exato difere um pouco entre v2 e v3
   "decoder.int8.onnx" = 7257753
   "joiner.int8.onnx"  = 1739080
   "tokens.txt"        = 9384
 }
 foreach ($k in $expect.Keys) {
     $p = Join-Path $dir $k
-    if (-not (Test-Path $p)) { Write-Host "MISSING  $k" -ForegroundColor Red; continue }
+    if (-not (Test-Path $p)) { Write-Host "FALTANDO  $k" -ForegroundColor Red; continue }
     $got = (Get-Item $p).Length
     $ok = [math]::Abs($got - $expect[$k]) -lt 2MB
-    Write-Host ("{0,-20} {1,12:N0} bytes  {2}" -f $k, $got, $(if($ok){"OK"}else{"SIZE MISMATCH"}))
+    Write-Host ("{0,-20} {1,12:N0} bytes  {2}" -f $k, $got, $(if($ok){"OK"}else{"TAMANHO DIFERENTE"}))
 }
 ```
 
-**A truncated download is the most common failure and it does not announce itself** — a
-partial `encoder.int8.onnx` fails at model-load time with an opaque protobuf parse error.
-Check the sizes before reporting a bug.
+**Um download truncado é a falha mais comum e não se anuncia** — um `encoder.int8.onnx` parcial
+falha ao carregar o modelo com um erro opaco de parse de protobuf. Confira os tamanhos antes de
+reportar um bug.
 
-`tokens.txt` should be plain text, one `token id` pair per line, starting:
+O `tokens.txt` deve ser texto puro, um par `token id` por linha, começando com:
 
 ```
 <unk> 0
@@ -152,125 +157,129 @@ Check the sizes before reporting a bug.
 
 ---
 
-## <a id="memory"></a>Memory: read this before choosing a machine
+## <a id="memory"></a>Memória: leia antes de escolher uma máquina
 
-**The model needs roughly 2 GB of RAM resident, even for a two-second utterance.** That is
-the int8 weights plus the inference runtime's memory arena — it is not a leak and it is not
-specific to this app (the same footprint appears running the model from Python).
+**O modelo precisa de cerca de 2 GB de RAM residentes, mesmo para uma fala de dois segundos.**
+São os pesos int8 mais a área de memória do runtime de inferência — não é vazamento e não é
+específico deste app (o mesmo consumo aparece rodando o modelo pelo Python).
 
-Measured peak working set by clip length:
+Pico de memória medido por duração do trecho:
 
-| Audio | Peak RAM |
+| Áudio | Pico de RAM |
 |---|---|
-| 7 s | 2.0 GB |
-| 60 s | 2.5 GB |
-| 300 s | 4.3 GB |
+| 7 s | 2,0 GB |
+| 60 s | 2,5 GB |
+| 300 s | 4,3 GB |
 
-**On an 8 GB machine, expect the app to be a noticeable tenant.** 16 GB is comfortable.
+**Numa máquina com 8 GB, o app vai ocupar um espaço perceptível.** Com 16 GB fica confortável.
 
-### The 400-second ceiling
+### O limite de 400 segundos
 
-The exported encoder carries a fixed relative-position table sized for **5000 frames**. At
-80 ms per frame that is **400 seconds**, and beyond it inference *fails* rather than
-degrading:
+O encoder exportado tem uma tabela fixa de posições relativas dimensionada para **5000
+quadros**. A 80 ms por quadro isso dá **400 segundos**, e acima disso a inferência *falha* em
+vez de degradar:
 
 ```
 Non-zero status code returned while running Add node.
 Attempting to broadcast an axis by a dimension other than 1. 126 by 5126
 ```
 
-The app splits audio into 30–60 second segments on silence boundaries, so you will not hit
-this dictating normally. It matters if you ever point the app at a long recording.
+O app divide o ditado em segmentos de 30–60 segundos nos silêncios, e reuniões e arquivos de
+áudio são cortados em falas pelo Silero VAD, então você não chega a isso no uso normal.
 
 ---
 
-## Hardware and acceleration
+## Hardware e aceleração
 
-**CPU only. This is deliberate, not a limitation we forgot to lift.**
+**Só CPU. É deliberado, não uma limitação esquecida.**
 
-- sherpa-onnx ships **no GPU package**. Setting a CUDA provider silently falls back to CPU.
-- The DirectML runtime is five minor versions behind mainline, forbids parallel inference,
-  and wants fixed tensor shapes — which this model, with its variable-length audio input,
-  cannot provide.
-- CUDA would force every user to install a matching CUDA toolkit.
+- O sherpa-onnx **não tem pacote para GPU**. Configurar um provider CUDA volta para a CPU em
+  silêncio.
+- O runtime DirectML está cinco versões menores atrás da principal, proíbe inferência paralela
+  e exige formatos de tensor fixos — o que este modelo, com entrada de áudio de tamanho
+  variável, não pode oferecer.
+- CUDA obrigaria todo usuário a instalar um toolkit CUDA compatível.
 
-None of it is worth it. Measured on CPU with int8 weights, transcription runs ~40× faster
-than real time. Four threads is the sweet spot — eight measured *slower* than four.
+Nada disso compensa. Medido na CPU com pesos int8, a transcrição roda ~40× mais rápido que o
+tempo real. Quatro threads é o ponto ideal — oito mediu *mais lento* que quatro.
 
-**ARM64 Windows:** install the ARM64 build of the app. The x64 build runs under emulation
-and transcription will be dramatically slower.
+(A IA local de resumos e chat é outra história: ela usa a GPU via Vulkan — veja o `AGENTS.md`.)
+
+**Windows ARM64:** instale o build ARM64 do app. O build x64 roda em emulação e a transcrição
+fica muito mais lenta.
 
 ---
 
-## Troubleshooting
+## Solução de problemas
 
-| Symptom | Cause |
+| Sintoma | Causa |
 |---|---|
-| "Model not found" | Files are in the wrong folder. Settings → Model shows the exact path being checked. |
-| Protobuf / parse error on load | Truncated download. Re-run the size check above. |
-| Loads, but every transcript is empty | Windows is blocking microphone access. Settings → Privacy & security → Microphone → **Let desktop apps access your microphone**. WASAPI returns *silence*, not an error, when this is off. |
-| Very slow first transcription | Model load, ~2 s. Only on the first utterance after launch. |
-| Consistently slow | You may be running the x64 build on an ARM64 machine. |
-| Fails on audio over ~7 minutes | The 400-second ceiling above. |
+| "Modelo não encontrado" | Arquivos na pasta errada. Configurações → Modelo mostra o caminho exato verificado. |
+| Erro de protobuf / parse ao carregar | Download truncado. Rode de novo a conferência de tamanhos acima. |
+| Carrega, mas toda transcrição sai vazia | O Windows está bloqueando o microfone. Configurações → Privacidade e segurança → Microfone → **Permitir que aplicativos da área de trabalho acessem o microfone**. Com isso desligado o WASAPI devolve *silêncio*, não um erro. |
+| Primeira transcrição muito lenta | Carregamento do modelo, ~2 s. Só na primeira fala depois de abrir o app. |
+| Sempre lento | Você pode estar rodando o build x64 numa máquina ARM64. |
+| Falha em áudio de mais de ~7 minutos sem pausas | O limite de 400 segundos acima. |
 
 ---
 
-## <a id="licence"></a>Licence and attribution
+## <a id="licence"></a>Licença e atribuição
 
-**Model weights: CC-BY-4.0.** Commercial use is permitted. If you redistribute the model
-inside a product you must:
+**Pesos do modelo: CC-BY-4.0.** Uso comercial é permitido. Se você redistribuir o modelo dentro
+de um produto, precisa:
 
-1. **Credit NVIDIA**, name the model, and link both the model card and
+1. **Dar crédito à NVIDIA**, nomear o modelo e linkar tanto o model card quanto
    <https://creativecommons.org/licenses/by/4.0/>.
-2. **State that it was modified** — the int8 quantization and ONNX export are modifications.
-3. **Add no further restrictions.** If your EULA forbids extracting bundled files, it must
-   carve out the model weights.
+2. **Informar que ele foi modificado** — a quantização int8 e a exportação ONNX são
+   modificações.
+3. **Não acrescentar restrições.** Se sua EULA proíbe extrair arquivos empacotados, ela precisa
+   abrir exceção para os pesos do modelo.
 
-A `THIRD-PARTY-NOTICES.txt` plus a line in the About box satisfies this.
+Um `THIRD-PARTY-NOTICES.txt` mais uma linha na janela Sobre resolvem isso.
 
-**sherpa-onnx** is Apache-2.0. **ONNX Runtime** is MIT.
+O **sherpa-onnx** é Apache-2.0. O **ONNX Runtime** é MIT.
 
-> Not legal advice. CC-BY-4.0 is a content licence rather than a software one and carries no
-> patent grant. If you are shipping this commercially, have counsel confirm.
+> Não é aconselhamento jurídico. CC-BY-4.0 é uma licença de conteúdo, não de software, e não
+> concede patentes. Se for distribuir comercialmente, peça a um advogado para confirmar.
 
 ---
 
-## For a coding agent
+## Para um agente de código
 
-Minimum to reproduce a working setup:
+O mínimo para reproduzir uma configuração funcionando:
 
 ```
-Repo:    csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8   (HuggingFace, public, no token)
+Repo:    csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8   (HuggingFace, público, sem token)
 Files:   encoder.int8.onnx, decoder.int8.onnx, joiner.int8.onnx, tokens.txt
-Target:  %LOCALAPPDATA%\TalkToText\models\parakeet-v2\
+Target:  %LOCALAPPDATA%\TalkToText\models\parakeet-v3\
 NuGet:   org.k2fsa.sherpa.onnx 1.13.5
-         org.k2fsa.sherpa.onnx.runtime.win-x64 1.13.5   (or .win-arm64)
+         org.k2fsa.sherpa.onnx.runtime.win-x64 1.13.5   (ou .win-arm64)
 ```
 
-Config that actually works — every field verified against a running transcription:
+Configuração que funciona de verdade — cada campo conferido numa transcrição rodando:
 
 ```csharp
 var cfg = new OfflineRecognizerConfig();
 cfg.FeatConfig.SampleRate  = 16000;
-cfg.FeatConfig.FeatureDim  = 128;                  // NOT the default 80
+cfg.FeatConfig.FeatureDim  = 128;                  // NÃO o padrão 80
 cfg.ModelConfig.Transducer.Encoder = $"{dir}/encoder.int8.onnx";
 cfg.ModelConfig.Transducer.Decoder = $"{dir}/decoder.int8.onnx";
 cfg.ModelConfig.Transducer.Joiner  = $"{dir}/joiner.int8.onnx";
 cfg.ModelConfig.Tokens     = $"{dir}/tokens.txt";
-cfg.ModelConfig.ModelType  = "nemo_transducer";    // REQUIRED — omit it and loading fails
+cfg.ModelConfig.ModelType  = "nemo_transducer";    // OBRIGATÓRIO — sem isso o carregamento falha
 cfg.ModelConfig.NumThreads = 4;
 cfg.ModelConfig.Provider   = "cpu";
 cfg.DecodingMethod         = "greedy_search";
 ```
 
-Four things that will cost an hour each if missed:
+Quatro coisas que custam uma hora cada se esquecidas:
 
-1. **`ModelType = "nemo_transducer"` is mandatory.** Without it the model will not load.
-2. **`FeatureDim = 128`**, not the default 80.
-3. **Set a `RuntimeIdentifier`** (`-r win-x64`). Without one, native libraries land in
-   `runtimes/<rid>/native/` and you get `DllNotFoundException` at runtime.
-4. **`WaveReader` is not in the NuGet package** — it's an example helper. Write your own WAV
-   parsing, or feed `float[]` samples in `[-1, 1]` directly.
+1. **`ModelType = "nemo_transducer"` é obrigatório.** Sem ele o modelo não carrega.
+2. **`FeatureDim = 128`**, não o padrão 80.
+3. **Defina um `RuntimeIdentifier`** (`-r win-x64`). Sem ele, as bibliotecas nativas vão para
+   `runtimes/<rid>/native/` e você recebe `DllNotFoundException` em tempo de execução.
+4. **`WaveReader` não está no pacote NuGet** — é um auxiliar dos exemplos. Escreva seu próprio
+   parser de WAV, ou passe amostras `float[]` em `[-1, 1]` diretamente.
 
-Audio must be **16 kHz mono float32**. On Windows, WASAPI shared mode will resample for you
-if you request that format before opening the device.
+O áudio precisa ser **16 kHz mono float32**. No Windows, o modo compartilhado do WASAPI reamostra
+para você se pedir esse formato antes de abrir o dispositivo.

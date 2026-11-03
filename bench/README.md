@@ -1,120 +1,121 @@
-# Speech engine benchmark
+# Benchmark de motores de fala
 
-Apple's macOS 26 `SpeechTranscriber` vs NVIDIA's **Parakeet TDT 0.6B** running on the
-Neural Engine, on the same audio, scored the same way.
+O `SpeechTranscriber` do macOS 26 da Apple contra o **Parakeet TDT 0.6B** da NVIDIA rodando no
+Neural Engine, no mesmo áudio, avaliados do mesmo jeito.
 
-Self-contained — it doesn't build or touch the Murmur YouTube app.
+Independente — não compila nem mexe no app Talk-to-Text.
 
 ```bash
 cd bench
-swift run bench record take1.wav          # talk, press RETURN
-swift run bench run take1.wav             # transcribe with both, open dashboard
+swift run bench record take1.wav          # fale e pressione RETURN
+swift run bench run take1.wav             # transcreve com os dois e abre o painel
 ```
 
-To score accuracy, write down what you actually said and pass it as the reference:
+Para medir a precisão, escreva o que você realmente disse e passe como referência:
 
 ```bash
 echo "the quick brown fox jumps over the lazy dog" > take1.txt
 swift run bench run take1.wav --ref take1.txt
 ```
 
-Flags: `--v2` (English-only Parakeet, higher recall), `--int4` (smaller/faster encoder).
+Flags: `--v2` (Parakeet só em inglês, maior recall), `--int4` (encoder menor e mais rápido).
 
-Outputs `take1-results.json` and `take1-dashboard.html`, and opens the dashboard.
+Gera `take1-results.json` e `take1-dashboard.html`, e abre o painel.
 
 ---
 
-## Where the Parakeet model comes from
+## De onde vem o modelo Parakeet
 
-Parakeet is NVIDIA's ASR model, trained in their NeMo framework and published as PyTorch
-weights. It can't run on the Neural Engine in that form.
+O Parakeet é o modelo de reconhecimento de fala da NVIDIA, treinado no framework NeMo e
+publicado como pesos PyTorch. Nesse formato ele não roda no Neural Engine.
 
-**Fluid Inference** is an open-source project that converts frontier audio models to
-**CoreML** and wraps them in a Swift SDK called **FluidAudio** — the same thing Argmax's
-WhisperKit does for Whisper. They publish the converted weights on Hugging Face:
+A **Fluid Inference** é um projeto open source que converte modelos de áudio de ponta para
+**CoreML** e os empacota num SDK Swift chamado **FluidAudio** — o mesmo que o WhisperKit da
+Argmax faz com o Whisper. Os pesos convertidos estão publicados no Hugging Face:
 
 | | |
 |---|---|
-| Repo | [`FluidInference/parakeet-tdt-0.6b-v3-coreml`](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) |
-| Base model | `nvidia/parakeet-tdt-0.6b-v3` |
-| License | CC-BY-4.0 |
-| Languages | 25 (English + European) |
+| Repositório | [`FluidInference/parakeet-tdt-0.6b-v3-coreml`](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) |
+| Modelo base | `nvidia/parakeet-tdt-0.6b-v3` |
+| Licença | CC-BY-4.0 |
+| Idiomas | 25 (inglês + europeus) |
 
-Nothing but `curl` is needed to inspect it — the Hugging Face API is public and unauthenticated:
+Basta o `curl` para inspecioná-lo — a API do Hugging Face é pública e não exige autenticação:
 
 ```bash
 REPO=FluidInference/parakeet-tdt-0.6b-v3-coreml
 
-# metadata
+# metadados
 curl -s "https://huggingface.co/api/models/$REPO" | jq '{id, downloads, likes, pipeline_tag}'
 
-# every file with sizes
+# todos os arquivos com tamanhos
 curl -s "https://huggingface.co/api/models/$REPO/tree/main?recursive=true" \
   | jq -r '.[] | select(.type=="file") | "\(.lfs.size // .size)\t\(.path)"' \
   | sort -rn | head
 
-# one file, directly
+# um arquivo, direto
 curl -L -O "https://huggingface.co/$REPO/resolve/main/Encoder.mlmodelc/weights/weight.bin"
 ```
 
-The repo totals ~3 GB because it ships several variants of the same network — compiled
-`.mlmodelc` bundles, the source `.mlpackage` form, and an INT4-quantized encoder.
+O repositório soma ~3 GB porque traz várias variantes da mesma rede — pacotes `.mlmodelc`
+compilados, a forma-fonte `.mlpackage` e um encoder quantizado em INT4.
 
-**You don't download all of it.** Measured on a real first run, FluidAudio pulled exactly
-four compiled models totalling **469 MB** into
+**Você não baixa tudo isso.** Medido numa primeira execução real, o FluidAudio baixou
+exatamente quatro modelos compilados, somando **469 MB**, em
 `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3/`:
 
-| Component | Role | Weights |
+| Componente | Papel | Pesos |
 |---|---|---|
-| `Encoder.mlmodelc` | acoustic model (INT8) | 433 MB |
-| `Decoder.mlmodelc` | transducer decoder | 23 MB |
-| `JointDecisionv3.mlmodelc` | joint network | 12 MB |
-| `Preprocessor.mlmodelc` | audio → mel features | <1 MB |
+| `Encoder.mlmodelc` | modelo acústico (INT8) | 433 MB |
+| `Decoder.mlmodelc` | decodificador do transducer | 23 MB |
+| `JointDecisionv3.mlmodelc` | rede conjunta | 12 MB |
+| `Preprocessor.mlmodelc` | áudio → features mel | <1 MB |
 
-Note it takes the small `Preprocessor` rather than the 595 MB `MelEncoder`, and the INT8
-encoder rather than the `.mlpackage` sources — which is why the download is a sixth of the
-repo. Don't infer download size from repo size.
+Repare que ele pega o `Preprocessor` pequeno em vez do `MelEncoder` de 595 MB, e o encoder INT8
+em vez das fontes `.mlpackage` — por isso o download é um sexto do repositório. Não deduza o
+tamanho do download pelo tamanho do repositório.
 
-You never invoke any of this by hand — `AsrModels.downloadAndLoad(version: .v3)` fetches
-and caches it. To pre-fetch or work offline, the official CLI mirrors the whole repo:
+Você nunca chama nada disso à mão — `AsrModels.downloadAndLoad(version: .v3)` baixa e guarda em
+cache. Para baixar antes ou trabalhar offline, a CLI oficial espelha o repositório inteiro:
 
 ```bash
 pip install -U "huggingface_hub[cli]"
 hf download FluidInference/parakeet-tdt-0.6b-v3-coreml
 ```
 
-Cache lands in `~/.cache/huggingface/`; FluidAudio's copy in
-`~/Library/Application Support/FluidAudio/Models/`. Delete either to force a re-download.
+O cache fica em `~/.cache/huggingface/`; a cópia do FluidAudio em
+`~/Library/Application Support/FluidAudio/Models/`. Apague qualquer um para forçar novo download.
 
 ---
 
-## What's being measured
+## O que é medido
 
-**Process seconds** — wall clock from "start transcribing" to final text. Model loading is
-excluded, because the two are not comparable: Apple's models are resident in the OS, while
-Parakeet pays a one-time load per process. Load time is reported separately.
+**Segundos de processamento** — tempo de relógio de "começar a transcrever" até o texto final.
+O carregamento do modelo fica de fora, porque os dois não são comparáveis: os modelos da Apple
+já estão residentes no SO, enquanto o Parakeet paga um carregamento único por processo. O tempo
+de carga é informado à parte.
 
-**RTF** — audio seconds processed per wall-clock second. 100× means a 60-second clip
-transcribes in 0.6s. Higher is faster.
+**RTF** — segundos de áudio processados por segundo de relógio. 100× significa que um trecho de
+60 segundos é transcrito em 0,6 s. Quanto maior, mais rápido.
 
-**WER / CER** — word and character error rate against your reference, via Levenshtein
-distance. Scored on *normalized* text: lowercased, punctuation stripped, whitespace
-collapsed. This matters — Apple adds punctuation automatically, and against an unpunctuated
-reference that would score as dozens of phantom errors and make the comparison worthless.
-CER is included because WER counts a near-miss ("Kubernetes" → "cubernetties") as a wholly
-wrong word, which overstates the damage for technical vocabulary.
+**WER / CER** — taxa de erro de palavras e de caracteres em relação à sua referência, por
+distância de Levenshtein. Avaliado em texto *normalizado*: minúsculas, sem pontuação, espaços
+colapsados. Isso importa — a Apple adiciona pontuação automaticamente, e contra uma referência
+sem pontuação isso contaria como dezenas de erros fantasmas e tornaria a comparação inútil. O
+CER está incluído porque o WER conta um quase-acerto ("Kubernetes" → "cubernetties") como uma
+palavra totalmente errada, o que exagera o estrago em vocabulário técnico.
 
-### What this does *not* measure
+### O que isto *não* mede
 
-Both engines run in **batch** here: whole file in, final text out. That's the fair way to
-compare throughput, but it isn't how dictation feels.
+Os dois motores rodam em **lote** aqui: o arquivo inteiro entra, o texto final sai. É o jeito
+justo de comparar vazão, mas não é como o ditado é sentido.
 
-`SpeechTranscriber` is natively streaming — with `.volatileResults` it shows words as you
-speak, so perceived latency is near zero regardless of RTF. Parakeet's batch path can only
-start after you stop talking. FluidAudio does offer `SlidingWindowAsrManager` for real
-streaming, which would be the fair comparison for felt latency, but it's a different
-measurement and isn't wired up here.
+O `SpeechTranscriber` é nativamente streaming — com `.volatileResults` ele mostra as palavras
+enquanto você fala, então a latência percebida é quase zero independentemente do RTF. O caminho
+em lote do Parakeet só começa depois que você para de falar. O FluidAudio oferece o
+`SlidingWindowAsrManager` para streaming de verdade, que seria a comparação justa para latência
+percebida, mas é outra medição e não está ligada aqui.
 
-So: **RTF answers "which is faster at bulk transcription," not "which feels snappier
-while dictating."** For a push-to-talk app where you release the key and wait, batch
-latency is close to what you feel — but don't read these numbers as the whole story.
+Então: **o RTF responde "qual é mais rápido para transcrição em massa", não "qual parece mais
+ágil ao ditar".** Num app push-to-talk em que você solta a tecla e espera, a latência em lote é
+próxima do que você sente — mas não leia estes números como a história completa.

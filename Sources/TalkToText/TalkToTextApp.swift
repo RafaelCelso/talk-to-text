@@ -2,13 +2,13 @@ import AppKit
 import SwiftUI
 
 @main
-struct MurmurYouTubeApp: App {
+struct TalkToTextApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
-        Window("Murmur YouTube", id: "main") {
+        Window("Talk-to-Text", id: "main") {
             MainWindow(controller: delegate.controller)
         }
         .defaultSize(width: 860, height: 620)
@@ -89,13 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
-        Log.app.info("Murmur YouTube ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
+        Log.app.info("Talk-to-Text ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
     }
 
-    /// `murmuryt://clear` and `murmuryt://show`, used by the legacy HTML dashboard and
+    /// `talktotext://clear` and `talktotext://show`, used by the legacy HTML dashboard and
     /// as a scriptable way to raise the window.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "murmuryt" {
+        for url in urls where url.scheme == "talktotext" {
             switch url.host {
             case "clear":
                 RunLog.clear()
@@ -241,7 +241,7 @@ private struct MenuContent: View {
             Button("Grant Microphone…") { Permissions.openMicrophoneSettings() }
         }
 
-        Button("Quit Murmur YouTube") { NSApp.terminate(nil) }
+        Button("Quit Talk-to-Text") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }

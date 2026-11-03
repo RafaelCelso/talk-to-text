@@ -51,7 +51,7 @@ public static class SelfTest
     {
         // Exercises the source-generated JSON, which is the part most likely to have been
         // silently broken by trimming or single-file publishing.
-        var directory = Path.Combine(Path.GetTempPath(), $"murmur-selftest-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"talktotext-selftest-{Guid.NewGuid():N}");
 
         try
         {

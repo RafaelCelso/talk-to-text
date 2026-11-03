@@ -14,7 +14,7 @@ namespace TalkToText.CoreTests;
 /// </remarks>
 public sealed class DictionaryFileTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"murmur-dict-{Guid.NewGuid():N}.txt");
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"talktotext-dict-{Guid.NewGuid():N}.txt");
 
     public void Dispose()
     {
@@ -106,7 +106,7 @@ public sealed class DictionaryFileTests : IDisposable
 /// <summary>Transcript history persistence.</summary>
 public sealed class TranscriptStoreTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"murmur-hist-{Guid.NewGuid():N}.jsonl");
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"talktotext-hist-{Guid.NewGuid():N}.jsonl");
 
     public void Dispose()
     {
@@ -204,7 +204,7 @@ public sealed class TranscriptStoreTests : IDisposable
 /// <summary>Settings persistence.</summary>
 public sealed class AppSettingsTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"murmur-set-{Guid.NewGuid():N}.json");
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"talktotext-set-{Guid.NewGuid():N}.json");
 
     public void Dispose()
     {
@@ -254,46 +254,5 @@ public sealed class AppSettingsTests : IDisposable
         var data = new AppSettings(_path).Data;
         data.Shortcut.ShouldBe(Shortcut.Default);
         data.KeepHistory.ShouldBeFalse();
-    }
-}
-
-/// <summary>Moving the data folder across the Murmur → Talk-to-Text rename.</summary>
-public sealed class DataFolderTests : IDisposable
-{
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"ttt-data-{Guid.NewGuid():N}");
-
-    public void Dispose()
-    {
-        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
-    }
-
-    [Fact]
-    public void Legacy_folder_is_moved_and_its_model_path_rewritten()
-    {
-        var legacy = Path.Combine(_root, "Murmur");
-        var current = Path.Combine(_root, "TalkToText");
-        Directory.CreateDirectory(Path.Combine(legacy, "models", "parakeet-v3"));
-        var oldModel = Path.Combine(legacy, "models", "parakeet-v3");
-        File.WriteAllText(Path.Combine(legacy, "settings.json"),
-            "{ \"ModelDirectory\": \"" + oldModel.Replace("\\", "\\\\", StringComparison.Ordinal) + "\" }");
-
-        DataFolder.MigrateLegacy(legacy, current).ShouldBeTrue();
-
-        Directory.Exists(legacy).ShouldBeFalse();
-        Directory.Exists(Path.Combine(current, "models", "parakeet-v3")).ShouldBeTrue();
-        new AppSettings(Path.Combine(current, "settings.json")).Data.ModelDirectory
-            .ShouldBe(Path.Combine(current, "models", "parakeet-v3"));
-    }
-
-    [Fact]
-    public void An_existing_new_folder_is_never_overwritten()
-    {
-        var legacy = Path.Combine(_root, "Murmur");
-        var current = Path.Combine(_root, "TalkToText");
-        Directory.CreateDirectory(legacy);
-        Directory.CreateDirectory(current);
-
-        DataFolder.MigrateLegacy(legacy, current).ShouldBeFalse();
-        Directory.Exists(legacy).ShouldBeTrue();
     }
 }

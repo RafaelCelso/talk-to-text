@@ -1,123 +1,120 @@
-# Talk-to-Text for Windows
+# Talk-to-Text para Windows
 
-The Windows port of Murmur, renamed **Talk-to-Text** — push-to-talk dictation, on-device.
+Ditado *push-to-talk*, local, no Windows.
 
-Hold **Ctrl + Win** (configurable: one or two keys, hold-to-talk or press-to-toggle), speak,
-and the text is pasted where the cursor is. A pill at the bottom centre of the screen shows
-the recording start, run and end. The UI follows OpenWhispr's open-source (MIT) dark theme;
-the tokens live in `src/TalkToText.App/Design/DesignTokens.cs`.
+Segure **Ctrl + Win** (configurável: uma ou duas teclas, segurar para falar ou apertar para
+alternar), fale, e o texto é colado onde o cursor estiver. Uma pílula no centro inferior da tela
+mostra o início, o andamento e o fim da gravação. A UI segue o tema escuro open source (MIT) do
+OpenWhispr; os tokens ficam em `src/TalkToText.App/Design/DesignTokens.cs`.
 
-> **Status: first run on real hardware on 2026-11-01** (Windows 11, USB microphone,
-> Portuguese with Parakeet v3) — dictation into Notepad and WhatsApp worked end to end. The
-> note below predates that run and is kept for its reasoning.
->
-> **Earlier status: feature-complete, never run on real hardware.** Every layer exists and CI
-> builds, tests and publishes a working single-file executable that starts and passes its
-> own self-test on Windows. What has *not* happened is a human holding the key and speaking
-> into a real microphone — see [Honesty](#honesty).
+> **Status: roda em hardware real desde 2026-11-01** (Windows 11, microfone USB, português com
+> Parakeet v3) — ditado no Bloco de Notas e no WhatsApp funcionou de ponta a ponta. Além do
+> ditado, o app transcreve reuniões e arquivos de áudio, gera resumos e responde perguntas com
+> uma IA local; veja o [`AGENTS.md`](../AGENTS.md) para os detalhes de cada recurso.
 
 ---
 
-## Why this is a rewrite, not a port
+## Por que é uma reescrita, não um port
 
-Almost every layer of the macOS app is Apple-specific:
+Quase toda camada do app macOS é específica da Apple:
 
-| Layer | macOS | Windows |
+| Camada | macOS | Windows |
 |---|---|---|
 | UI | SwiftUI | Avalonia |
-| Audio capture | `AVAudioEngine` | WASAPI via NAudio |
-| **Default speech engine** | `SpeechAnalyzer` (ships with macOS 26) | **nothing equivalent exists** |
+| Captura de áudio | `AVAudioEngine` | WASAPI via NAudio |
+| **Motor de fala padrão** | `SpeechAnalyzer` (vem com o macOS 26) | **não existe equivalente** |
 | Parakeet | FluidAudio → CoreML | sherpa-onnx → ONNX Runtime |
-| Hotkey | `CGEventTap` | `SetWindowsHookEx(WH_KEYBOARD_LL)` |
-| Text injection | Accessibility API | `SendInput` |
+| Atalho de teclado | `CGEventTap` | `SetWindowsHookEx(WH_KEYBOARD_LL)` |
+| Injeção de texto | API de Acessibilidade | `SendInput` |
 
-The consequence that shapes everything: **Windows has no counterpart to Apple's
-`SpeechAnalyzer`.** On macOS, Parakeet is the optional upgrade. On Windows it is the only
-engine, and the app cannot transcribe until the model is downloaded —
-see [`docs/PARAKEET-WINDOWS.md`](../docs/PARAKEET-WINDOWS.md).
+A consequência que molda tudo: **o Windows não tem equivalente ao `SpeechAnalyzer` da Apple.**
+No macOS o Parakeet é o upgrade opcional. No Windows ele é o único motor, e o app não consegue
+transcrever até o modelo ser baixado — veja [`docs/PARAKEET-WINDOWS.md`](../docs/PARAKEET-WINDOWS.md).
 
-What *is* genuinely shared is the dictionary's behaviour, and it is shared as a contract
-rather than as code: [`shared/dictionary-test-vectors.json`](../shared/dictionary-test-vectors.json).
-Both implementations run those vectors in CI. Changing correction semantics starts there.
+O que *é* de fato compartilhado é o comportamento do dicionário, e ele é compartilhado como
+contrato, não como código: [`shared/dictionary-test-vectors.json`](../shared/dictionary-test-vectors.json).
+As duas implementações rodam esses vetores no CI. Mudar a semântica das correções começa por ali.
 
 ---
 
-## Decisions, and why
+## Decisões, e por quê
 
-**Avalonia, not WPF or WinUI 3.** WPF cannot be run or UI-tested on macOS, so every mistake
-would cost a full CI round-trip. Avalonia's headless test platform runs on macOS in ~100 ms,
-including simulated keyboard input and real pixel capture. Win32 interop is unaffected —
-hooks, `SendInput` and WASAPI are P/Invoke, not UI-framework code. WinUI 3 was rejected
-outright: Microsoft's own docs contradict each other on whether unpackaged single-file
-publishing works, with open bugs reporting an exe that won't launch.
+**Avalonia, não WPF nem WinUI 3.** WPF não roda nem tem testes de UI fora do Windows. O teste
+headless do Avalonia roda em qualquer SO em ~100 ms, incluindo entrada de teclado simulada e
+captura real de pixels. A interoperabilidade Win32 não é afetada — hooks, `SendInput` e WASAPI
+são P/Invoke, não código do framework de UI. O WinUI 3 foi descartado de cara: a própria
+documentação da Microsoft se contradiz sobre publicar sem pacote em arquivo único, com bugs
+abertos relatando um exe que não abre.
 
-**.NET 10, not .NET 8.** .NET 8 reaches end-of-life on **2026-11-10**.
+**.NET 10, não .NET 8.** O .NET 8 chega ao fim do suporte em **2026-11-10**.
 
-**Right Ctrl is the default hotkey, not Right Alt.** Right Alt is AltGr on German, Polish,
-UK, Nordic and most Latin-American layouts — it is how those users type `@`, `€`, `\`, `|`.
-Binding push-to-talk there would break basic typing for a large fraction of users. Right
-Ctrl produces no character on any layout.
+**O atalho evita o Alt direito.** O Alt direito é o AltGr nos layouts alemão, polonês,
+britânico, nórdicos e na maioria dos latino-americanos — é como esses usuários digitam `@`,
+`€`, `\`, `|`. Usá-lo para o ditado quebraria a digitação básica de muita gente. O padrão é
+**Ctrl + Win**, que não produz caractere em nenhum layout.
 
-**The hotkey is observed, never swallowed.** The macOS build consumes Right Option because
-on macOS that key types characters. On Windows, suppression buys nothing and risks a much
-worse failure: if the key-down is swallowed but the key-up escapes — a hook that timed out
-mid-gesture, or focus crossing into an elevated window — the target app believes Ctrl is
-held down forever.
+**O atalho é observado, nunca engolido.** O build macOS consome o Option direito porque no
+macOS essa tecla digita caracteres. No Windows, suprimir não ganha nada e arrisca uma falha bem
+pior: se o key-down é engolido mas o key-up escapa — um hook que expirou no meio do gesto, ou o
+foco passando para uma janela elevada — o app de destino acha que o Ctrl ficou pressionado para
+sempre.
 
-**CPU-only inference.** sherpa-onnx ships no GPU package; DirectML is five versions behind
-and forbids the variable tensor shapes this model requires; CUDA would force every user to
-install a toolkit. On CPU with int8 weights, transcription runs ~40× faster than real time.
+**Inferência de fala só na CPU.** O sherpa-onnx não tem pacote para GPU; o DirectML está cinco
+versões atrás e proíbe os formatos de tensor variáveis que este modelo exige; CUDA obrigaria
+todo usuário a instalar um toolkit. Na CPU com pesos int8, a transcrição roda ~40× mais rápido
+que o tempo real. (A IA local de resumos e chat usa a GPU via Vulkan.)
 
-**Three pinned versions that would break at "latest":**
+**Três versões fixadas que quebrariam na "latest":**
 
-| Package | Pinned | Why |
+| Pacote | Fixado | Por quê |
 |---|---|---|
-| `NAudio` | **2.3.0** | 3.x targets .NET 9+ and will not restore |
-| `Avalonia.Headless.XUnit` | **11.3.20** | 12.x requires xUnit **v3**, a different package line |
-| `org.k2fsa.sherpa.onnx` | 1.13.5 | Bundles ONNX Runtime; never also reference `Microsoft.ML.OnnxRuntime` |
+| `NAudio` | **2.3.0** | 3.x exige .NET 9+ e não restaura |
+| `Avalonia.Headless.XUnit` | **11.3.20** | 12.x exige xUnit **v3**, outra linha de pacotes |
+| `org.k2fsa.sherpa.onnx` | 1.13.5 | Já inclui o ONNX Runtime; nunca referencie também `Microsoft.ML.OnnxRuntime` |
 
 ---
 
-## Layout
+## Estrutura
 
 ```
 windows/
-├─ Directory.Build.props          strict analysis, applied to every project
-├─ Directory.Packages.props       central version pinning
-├─ global.json                    SDK pin
+├─ Directory.Build.props          análise rígida, aplicada a todo projeto
+├─ Directory.Packages.props       versões centralizadas
+├─ global.json                    versão do SDK
+├─ installer/                     instalador Inno Setup
 ├─ src/
-│  ├─ TalkToText.Dictionary/          corrections + biasing          net10.0
-│  ├─ TalkToText.Abstractions/        the four platform interfaces   net10.0
-│  ├─ TalkToText.Core/                engine, segmenter, storage     net10.0
-│  ├─ TalkToText.Speech/              Parakeet via sherpa-onnx       net10.0
-│  ├─ TalkToText.Testing/             fakes for the interfaces       net10.0
-│  ├─ TalkToText.App/                 Avalonia UI                    net10.0
-│  └─ TalkToText.Platform.Windows/    the ONLY Win32 code            net10.0-windows
+│  ├─ TalkToText.Dictionary/          correções + biasing                net10.0
+│  ├─ TalkToText.Abstractions/        as interfaces de plataforma        net10.0
+│  ├─ TalkToText.Core/                motor, reuniões, busca, armazenamento net10.0
+│  ├─ TalkToText.Speech/              Parakeet via sherpa-onnx, IA local net10.0
+│  ├─ TalkToText.Testing/             fakes das interfaces               net10.0
+│  ├─ TalkToText.App/                 UI Avalonia                        net10.0
+│  └─ TalkToText.Platform.Windows/    o ÚNICO código Win32               net10.0-windows
 └─ tests/
-   ├─ TalkToText.Dictionary.Tests/    the shared vectors             24 tests
-   ├─ TalkToText.Core.Tests/          engine, chunking, storage      26 tests
-   └─ TalkToText.App.Tests/           headless Avalonia UI           13 tests
+   ├─ TalkToText.Dictionary.Tests/    os vetores compartilhados
+   ├─ TalkToText.Core.Tests/          motor, áudio, reuniões, armazenamento
+   └─ TalkToText.App.Tests/           UI Avalonia headless
 ```
 
-**Only one project targets `-windows`.** Everything else is platform-neutral, so `CA1416`
-turns an accidental Win32 call into a build error — and, more usefully, the whole app
-builds, runs and tests on macOS.
+**Só um projeto tem alvo `-windows`.** Todo o resto é neutro de plataforma, então o `CA1416`
+transforma uma chamada Win32 acidental em erro de compilação — e, mais útil ainda, o app inteiro
+compila, roda e é testado fora do Windows.
 
-`TalkToText.App` loads the platform layer **by reflection** rather than referencing it. A direct
-reference would drag the UI onto `net10.0-windows` and destroy the local loop. The published
-self-test verifies that reflection works from inside the single-file bundle, because that is
-where the arrangement would otherwise fail — silently, at the moment the user first pressed
-the key.
+O `TalkToText.App` carrega a camada de plataforma **por reflexão** em vez de referenciá-la. Uma
+referência direta arrastaria a UI para `net10.0-windows` e acabaria com o ciclo local. O
+self-test publicado verifica que a reflexão funciona de dentro do pacote single-file, porque é
+ali que esse arranjo falharia — em silêncio, no momento em que o usuário apertasse a tecla pela
+primeira vez.
 
-Keeping the platform layer logic-free is deliberate: anything that lives there is code CI
-cannot exercise. Retries, debouncing, device-change handling all belong in the neutral
-projects, behind an interface.
+Manter a camada de plataforma sem lógica é deliberado: tudo que vive ali é código que o CI não
+consegue exercitar. Novas tentativas, debounce, tratamento de troca de dispositivo — tudo isso
+pertence aos projetos neutros, atrás de uma interface.
 
 ---
 
-## Building
+## Compilando
 
-**On Windows** — everything, including the platform layer:
+**No Windows** — tudo, incluindo a camada de plataforma:
 
 ```bash
 cd windows
@@ -125,72 +122,70 @@ dotnet build TalkToText.sln --no-incremental -warnaserror
 dotnet test  TalkToText.sln
 ```
 
-**On macOS or Linux** — use the solution filter. `TalkToText.Platform.Windows` targets
-`net10.0-windows` and cannot compile off Windows; the filter omits it and everything else
-builds and tests normally, including the full UI suite:
+**No macOS ou Linux** — use o filtro de solução. `TalkToText.Platform.Windows` tem alvo
+`net10.0-windows` e não compila fora do Windows; o filtro o omite e todo o resto compila e testa
+normalmente, incluindo a suíte de UI completa:
 
 ```bash
 cd windows
-dotnet test TalkToText.CrossPlatform.slnf -c Release      # ~0.5s, 63 tests
+dotnet test TalkToText.CrossPlatform.slnf -c Release
 ```
 
-`--no-incremental` is not optional in CI. Roslyn does not re-emit analyzer warnings on an
-incremental build, so `-warnaserror` would pass on cached results and prove nothing.
+`--no-incremental` não é opcional no CI. O Roslyn não reemite avisos de analisador num build
+incremental, então `-warnaserror` passaria com resultados em cache e não provaria nada.
 
 ---
 
-## Installer
+## Instalador
 
 ```powershell
-winget install JRSoftware.InnoSetup      # once
+winget install JRSoftware.InnoSetup      # uma vez
 cd windows
 .\installer\build-installer.ps1 -Version 0.2.0
 ```
 
-Produces `artifacts\installer\TalkToText-Setup-0.2.0.exe` (~36 MB). It publishes the same
-self-contained single-file exe CI does, runs `--selftest` on it, and packages it with
-[`installer/TalkToText.iss`](installer/TalkToText.iss). The installer:
+Gera `artifacts\installer\TalkToText-Setup-0.2.0.exe`. Ele publica o mesmo exe single-file
+autocontido que o CI publica, roda `--selftest` nele e o empacota com
+[`installer/TalkToText.iss`](installer/TalkToText.iss). O instalador:
 
-- installs **per user** to `%LOCALAPPDATA%\Programs\Talk-to-Text` — no UAC prompt;
-- downloads **Parakeet v3** (~670 MB, 25 languages) into `%LOCALAPPDATA%\TalkToText\models`,
-  checked against SHA-256, and skips the download if a complete copy is already there;
-- adds a Start Menu entry, and optionally a desktop icon and start-with-Windows;
-- leaves the model and settings behind on uninstall, so a reinstall keeps them.
+- instala **por usuário** em `%LOCALAPPDATA%\Programs\Talk-to-Text` — sem prompt do UAC;
+- baixa o **Parakeet v3** (~670 MB, 25 idiomas) para `%LOCALAPPDATA%\TalkToText\models`,
+  conferido por SHA-256, e pula o download se já houver uma cópia completa;
+- cria um atalho no Menu Iniciar e, opcionalmente, um ícone na área de trabalho e o início com o
+  Windows;
+- mantém o modelo e as configurações na desinstalação, para uma reinstalação aproveitá-los.
 
-On first launch the app moves a pre-rename `%LOCALAPPDATA%\Murmur` folder to
-`%LOCALAPPDATA%\TalkToText` (`DataFolder.MigrateLegacy`), rewriting the saved model path.
-
-It is **unsigned**, so SmartScreen shows "Windows protected your PC" on other machines —
-*More info → Run anyway*.
+Ele **não é assinado**, então o SmartScreen mostra "O Windows protegeu o computador" em outras
+máquinas — *Mais informações → Executar assim mesmo*.
 
 ---
 
-## <a id="honesty"></a>Honesty about what is verified
+## <a id="honesty"></a>Honestidade sobre o que está verificado
 
-**Verified, on Windows, every push:** 63 tests pass — 24 dictionary (the shared vectors),
-26 core (dictation state machine, audio chunking, all three storage formats), 13 headless
-Avalonia UI. CI then publishes a self-contained ~116 MB executable, **runs it**, and the
-binary reports back that the dictionary works, the source-generated JSON round-trips, and
-the Windows platform layer loads and constructs out of the bundle.
+**Verificado no Windows, a cada push:** a suíte de testes inteira — vetores do dicionário,
+núcleo (máquina de estados do ditado, fatiamento de áudio, reuniões, armazenamento) e UI
+Avalonia headless. O CI então publica um executável autocontido, **o executa**, e o binário
+confirma que o dicionário funciona, que o JSON gerado por código faz ida e volta, e que a camada
+de plataforma Windows carrega e é construída de dentro do pacote.
 
-**Verified on macOS, in ~0.5s:** the same 63 tests. The UI genuinely runs headless here,
-which is why bugs like a `Render` method mutating a property get caught while writing them
-rather than three CI round-trips later.
+**Verificado à mão em hardware real:** ditado com microfone USB em português no Bloco de Notas e
+no WhatsApp.
 
-**Known divergences between the two regex engines**, measured across 30 cases — 9 differed.
-The two that affect this code are both handled: culture-sensitive case-insensitive matching
-(fixed by `CultureInvariant`) and NFC/NFD mismatch (fixed by normalizing both sides). Two
-that are *not* fixable are simply avoided: ICU folds `ß` to `ss` and .NET does not, and
-.NET's `.` splits surrogate pairs. Neither is reachable from the patterns this code builds.
+**Divergências conhecidas entre os dois motores de regex**, medidas em 30 casos — 9 diferiram.
+As duas que afetam este código estão tratadas: comparação sem diferenciar maiúsculas sensível à
+cultura (resolvida com `CultureInvariant`) e diferença NFC/NFD (resolvida normalizando os dois
+lados). Duas que *não* têm conserto são simplesmente evitadas: o ICU converte `ß` em `ss` e o
+.NET não, e o `.` do .NET divide pares substitutos. Nenhuma é alcançável pelos padrões que este
+código monta.
 
-**Cannot be verified anywhere but a real machine:**
+**Só pode ser verificado numa máquina real:**
 
-- Text injection into a foreground app. Runners have an interactive desktop but cannot take
-  the foreground.
-- A real microphone: device format negotiation, the OS microphone-privacy block, unplugging
-  mid-capture.
-- The low-level keyboard hook actually firing on a physical keypress.
-- Parakeet transcribing real speech, and whether the ~2 GB working set is tolerable.
+- Injeção de texto num app em primeiro plano. Os runners têm área de trabalho interativa mas não
+  conseguem assumir o primeiro plano.
+- Um microfone real: negociação de formato, o bloqueio de privacidade do SO, desconectar no meio
+  da captura.
+- O hook de teclado de baixo nível disparando com um toque físico.
+- O Parakeet transcrevendo fala real, e se ~2 GB de memória são toleráveis.
 
-Everything those depend on is behind an interface and exercised with fakes, so the logic
-around them is tested. The bindings themselves are not.
+Tudo o que depende disso fica atrás de uma interface e é exercitado com fakes, então a lógica em
+volta é testada. As ligações em si não.

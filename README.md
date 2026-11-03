@@ -94,15 +94,14 @@ implementações rodam esses vetores; mudanças de comportamento começam por al
 
 ## macOS
 
-A versão para macOS (ainda com o nome original, *Murmur YouTube*) requer macOS 26 e é
-compilada com `make install`. Detalhes de permissões, assinatura e arquitetura em
+A versão para macOS requer macOS 26 e é compilada com `make install`. Detalhes de permissões, assinatura e arquitetura em
 [`docs/MACOS.md`](docs/MACOS.md).
 
 ---
 
 ## Créditos e licença
 
-O Talk-to-Text começou a partir do [murmur-youtube](https://github.com/per-simmons/murmur-youtube),
-de Pat Simmons. O tema visual do app Windows segue o do OpenWhispr (MIT).
+O Talk-to-Text começou a partir de um projeto open source de
+[Pat Simmons](https://github.com/per-simmons). O tema visual do app Windows segue o do OpenWhispr (MIT).
 
 Distribuído sob a licença [MIT](LICENSE).
