@@ -112,6 +112,33 @@ public sealed class SpeakerClustererTests
     }
 
     [Fact]
+    public void A_short_utterance_never_starts_a_new_speaker()
+    {
+        var clusterer = new SpeakerClusterer([]);
+        clusterer.Assign([1, 0, 0], seconds: 4).Cluster.ShouldBe(0);
+
+        // A cough or "uhum" sounds like nobody in particular.
+        clusterer.Assign([0, 1, 0], seconds: 0.6).Cluster.ShouldBe(0);
+        clusterer.Assign([0, 1, 0], seconds: 3).Cluster.ShouldBe(1, "said at length, it is someone new");
+    }
+
+    [Fact]
+    public void A_borderline_print_is_attributed_but_does_not_drag_a_settled_voice()
+    {
+        var clusterer = new SpeakerClusterer([]);
+        for (var i = 0; i < 3; i++) clusterer.Assign([1, 0, 0], seconds: 4);
+        var before = clusterer.Centroid(0);
+
+        // Cosine 0.7 with the mean: the same person, probably, but not clearly enough to learn from.
+        clusterer.Assign([0.7f, 0.714f, 0], seconds: 4).Cluster.ShouldBe(0);
+        clusterer.Centroid(0).ShouldBe(before);
+        clusterer.Count(0).ShouldBe(3);
+
+        clusterer.Assign([0.98f, 0.2f, 0], seconds: 4);
+        clusterer.Count(0).ShouldBe(4, "a clear match still refines the voice");
+    }
+
+    [Fact]
     public void Similarity_threshold_matches_the_measured_bands()
     {
         // WeSpeaker scored one voice 0.86–0.94 against itself and two voices 0.50–0.55.
@@ -406,4 +433,41 @@ public sealed class MeetingSessionTests : IDisposable
         saved.Title.ShouldBe("Daily");
         saved.ToPlainText().ShouldContain("Rafael: Salvo");
     }
+}
+
+/// <summary>When the meeting app's "is speaking" label outranks the voice.</summary>
+public sealed class AgreedSpeakerTests
+{
+    [Fact]
+    public void A_name_shown_for_nearly_the_whole_utterance_counts()
+    {
+        SpeakingLabel.Agreed(["Ana", "Ana", "ana", "Ana"]).ShouldBe("Ana");
+        SpeakingLabel.Agreed(["Bruno", "Ana", "Ana", "Ana"]).ShouldBe("Ana", "the label lags: one sample of the last speaker is fine");
+    }
+
+    [Fact]
+    public void Too_few_samples_or_a_split_decide_nothing()
+    {
+        SpeakingLabel.Agreed(["Ana", "Ana"]).ShouldBeNull();
+        SpeakingLabel.Agreed(["Ana", "Bruno", "Ana", "Bruno"]).ShouldBeNull();
+    }
+}
+
+/// <summary>What the recogniser makes of noise.</summary>
+public sealed class SpeechNoiseTests
+{
+    [Theory]
+    [InlineData("Okay.")]
+    [InlineData("Thank you.")]
+    [InlineData("Mm-hmm.")]
+    [InlineData("Wish.")]
+    [InlineData("T.")]
+    [InlineData("Uhum.")]
+    public void Stock_words_on_a_short_noise_are_dropped(string text) => SpeechNoise.IsNoise(text, 0.8).ShouldBeTrue();
+
+    [Theory]
+    [InlineData("Todos.", 0.8)]
+    [InlineData("Pode ser.", 0.9)]
+    [InlineData("Okay.", 2.5)]
+    public void Real_replies_are_kept(string text, double seconds) => SpeechNoise.IsNoise(text, seconds).ShouldBeFalse();
 }

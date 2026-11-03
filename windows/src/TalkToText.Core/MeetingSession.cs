@@ -309,22 +309,12 @@ public sealed class MeetingSession : IAsyncDisposable
 
     private async Task ProcessAsync(Utterance utterance)
     {
-        int speakerId;
+        var seconds = utterance.Samples.Length / (double)AudioChunk.SampleRate;
+        float[]? print = null;
 
         if (utterance.Remote)
         {
-            var (cluster, knownName) = _clusterer.Assign(_embedder.Embed(utterance.Samples));
-            speakerId = SpeakerFor(cluster, knownName);
-            lock (_gate)
-            {
-                if (Transcript.Speaker(speakerId) is { } speaker)
-                {
-                    speaker.Voice = _clusterer.Centroid(cluster);
-                    speaker.VoiceCount = _clusterer.Count(cluster);
-                }
-            }
-
-            NameFromMeetingApp(speakerId, utterance);
+            print = _embedder.Embed(utterance.Samples);
         }
         else
         {
@@ -337,13 +327,21 @@ public sealed class MeetingSession : IAsyncDisposable
                 Report("dropped a microphone utterance that echoed the speakers");
                 return;
             }
-
-            speakerId = LocalSpeaker;
         }
 
         if (!_transcriber.IsReady) await _transcriber.LoadAsync(CancellationToken.None).ConfigureAwait(false);
         var text = (await _transcriber.TranscribeAsync(utterance.Samples, [], CancellationToken.None).ConfigureAwait(false)).Trim();
         if (text.Length == 0) return;
+
+        // Decided after transcribing, so a noise that only produced "Okay." never becomes a
+        // participant.
+        if (SpeechNoise.IsNoise(text, seconds))
+        {
+            Report($"dropped a short noise transcribed as \"{text}\"");
+            return;
+        }
+
+        var speakerId = print is null ? LocalSpeaker : RemoteSpeaker(utterance, print, seconds);
 
         var message = new MeetingMessage { SpeakerId = speakerId, At = utterance.Start, Text = text };
         lock (_gate) Transcript.Messages.Add(message);
@@ -351,6 +349,89 @@ public sealed class MeetingSession : IAsyncDisposable
         Save();
         MessageAdded?.Invoke(this, message);
     }
+
+    /// <summary>
+    /// Who said a remote utterance: the meeting app when it clearly says so, the voice
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Two people in a real Teams call came out as one because their voices sounded alike over
+    /// the call. Teams knows better whenever they are on separate accounts, so a name it shows
+    /// for nearly the whole utterance outranks the voice print.
+    /// </remarks>
+    private int RemoteSpeaker(Utterance utterance, float[] print, double seconds)
+    {
+        List<string> heard;
+        lock (_gate)
+        {
+            heard = _hints
+                .Where(h => h.At >= utterance.Start && h.At <= utterance.End)
+                .Select(h => h.Name)
+                .Where(n => !string.Equals(n, Transcript.Speakers[0].Name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        var certain = SpeakingLabel.Agreed(heard);
+        int speakerId;
+        int cluster;
+
+        if (certain is not null && NamedCluster(certain) is { } named)
+        {
+            _clusterer.AssignTo(named.Cluster, print, seconds);
+            speakerId = named.Speaker;
+            cluster = named.Cluster;
+        }
+        else
+        {
+            (cluster, var knownName) = _clusterer.Assign(print, seconds);
+            speakerId = SpeakerFor(cluster, knownName);
+
+            // The voice matched someone the meeting app says is not the one talking.
+            if (certain is not null && Transcript.Speaker(speakerId) is { IsNamed: true } other
+                && !string.Equals(other.Name, certain, StringComparison.OrdinalIgnoreCase))
+            {
+                Report($"the meeting app says {certain} spoke, not {other.Name}: started a new participant");
+                cluster = _clusterer.StartNew(print);
+                speakerId = SpeakerFor(cluster, null);
+            }
+
+            NameFromMeetingApp(speakerId, certain ?? Majority(heard));
+        }
+
+        lock (_gate)
+        {
+            if (Transcript.Speaker(speakerId) is { } speaker)
+            {
+                speaker.Voice = _clusterer.Centroid(cluster);
+                speaker.VoiceCount = _clusterer.Count(cluster);
+            }
+        }
+
+        return speakerId;
+    }
+
+    /// <summary>The speaker already called <paramref name="name"/>, and their voice.</summary>
+    private (int Speaker, int Cluster)? NamedCluster(string name)
+    {
+        lock (_gate)
+        {
+            foreach (var (cluster, id) in _speakerByCluster)
+            {
+                if (Transcript.Speaker(id) is { IsNamed: true } s && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (id, cluster);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? Majority(IEnumerable<string> names) => names
+        .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+        .OrderByDescending(g => g.Count())
+        .Select(g => g.Key)
+        .FirstOrDefault();
 
     private bool IsEcho(Utterance local)
     {
@@ -396,22 +477,16 @@ public sealed class MeetingSession : IAsyncDisposable
     /// Names an anonymous participant after whoever the meeting app showed as speaking for
     /// most of the utterance. Names the user gave are never overwritten.
     /// </summary>
-    private void NameFromMeetingApp(int speakerId, Utterance utterance)
+    private void NameFromMeetingApp(int speakerId, string? name)
     {
-        string? name;
+        if (name is null) return;
+
         lock (_gate)
         {
             var speaker = Transcript.Speaker(speakerId);
             if (speaker is null || speaker.IsNamed) return;
 
-            name = _hints
-                .Where(h => h.At >= utterance.Start && h.At <= utterance.End)
-                .GroupBy(h => h.Name, StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(g => g.Count())
-                .Select(g => g.Key)
-                .FirstOrDefault();
-
-            if (name is null || Transcript.Speakers.Any(s => s.IsNamed && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+            if (Transcript.Speakers.Any(s => s.IsNamed && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 return;
             }

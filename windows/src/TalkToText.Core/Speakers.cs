@@ -149,11 +149,31 @@ public static class Vectors
 /// against itself and two different voices 0.50–0.55. Call audio is compressed, which pulls
 /// same-voice scores down, hence the threshold sits nearer the lower band than the midpoint.
 /// </para>
+/// <para>
+/// <b>Only clear, long prints shape a speaker.</b> A real Teams call merged two people into
+/// one: once a print of the second voice joined the first speaker's mean, the mean drifted
+/// towards both and pulled in more of the second. A print now only moves the mean when it is
+/// long enough to be reliable and clearly matches; a borderline one is attributed but leaves
+/// the mean alone. And a short utterance — "uhum", a cough, half a word — never starts a new
+/// speaker: the same call grew seven phantom participants out of those.
+/// </para>
 /// </remarks>
 public sealed class SpeakerClusterer
 {
     /// <summary>Similarity above which two prints are taken to be one person.</summary>
     public const double DefaultThreshold = 0.65;
+
+    /// <summary>Utterances shorter than this never start a new speaker.</summary>
+    public const double MinNewSpeakerSeconds = 1.5;
+
+    /// <summary>A print shorter than this is too noisy to move a speaker's mean.</summary>
+    private const double ReliableSeconds = 2.0;
+
+    /// <summary>How far above the threshold a print must score to move a settled mean.</summary>
+    private const double ClearMargin = 0.1;
+
+    /// <summary>Prints a speaker takes unconditionally before the mean counts as settled.</summary>
+    private const int Settling = 3;
 
     private readonly List<Cluster> _clusters = [];
     private readonly IReadOnlyList<KnownVoice> _known;
@@ -167,19 +187,17 @@ public sealed class SpeakerClusterer
     }
 
     /// <summary>Attributes one utterance's print to a speaker, creating one if it is new.</summary>
+    /// <param name="embedding">The utterance's voice print.</param>
+    /// <param name="seconds">How long the utterance is; short ones are trusted less.</param>
     /// <returns>The speaker's cluster id and, if recognised, the remembered name.</returns>
-    public (int Cluster, string? KnownName) Assign(float[] embedding)
+    public (int Cluster, string? KnownName) Assign(float[] embedding, double seconds = ReliableSeconds)
     {
         var print = Vectors.Normalized(embedding);
-
-        var best = _clusters
-            .Select(c => (Cluster: c, Score: Vectors.Cosine(c.Centroid, print)))
-            .OrderByDescending(x => x.Score)
-            .FirstOrDefault();
+        var best = Nearest(print);
 
         if (best.Cluster is not null && best.Score >= _threshold)
         {
-            best.Cluster.Add(print);
+            Learn(best.Cluster, print, seconds, best.Score);
             return (best.Cluster.Id, best.Cluster.KnownName);
         }
 
@@ -193,20 +211,57 @@ public sealed class SpeakerClusterer
         // A remembered person already in this meeting under a slightly different print.
         if (known is not null && _clusters.FirstOrDefault(c => c.KnownName == known.Name) is { } same)
         {
-            same.Add(print);
+            Learn(same, print, seconds, _threshold);
             return (same.Id, same.KnownName);
         }
 
-        var cluster = new Cluster(_clusters.Count, print, known?.Name);
-        _clusters.Add(cluster);
-        return (cluster.Id, cluster.KnownName);
+        // Too short to be sure it is someone new: the closest voice said it.
+        if (known is null && seconds < MinNewSpeakerSeconds && best.Cluster is not null)
+        {
+            return (best.Cluster.Id, best.Cluster.KnownName);
+        }
+
+        return StartNew(print, known?.Name);
     }
+
+    /// <summary>
+    /// Attributes a print to <paramref name="cluster"/> without asking the voice — the meeting
+    /// app said who was talking.
+    /// </summary>
+    public void AssignTo(int cluster, float[] embedding, double seconds)
+    {
+        var print = Vectors.Normalized(embedding);
+        var target = _clusters[cluster];
+        Learn(target, print, seconds, Vectors.Cosine(target.Centroid, print));
+    }
+
+    /// <summary>Starts a new speaker from <paramref name="embedding"/>, whatever it resembles.</summary>
+    public int StartNew(float[] embedding) => StartNew(Vectors.Normalized(embedding), null).Cluster;
 
     /// <summary>The current average print of <paramref name="cluster"/>.</summary>
     public float[] Centroid(int cluster) => _clusters[cluster].Centroid;
 
-    /// <summary>How many prints were attributed to <paramref name="cluster"/>.</summary>
+    /// <summary>How many prints were averaged into <paramref name="cluster"/>.</summary>
     public int Count(int cluster) => _clusters[cluster].Count;
+
+    private (Cluster? Cluster, double Score) Nearest(float[] print) => _clusters
+        .Select(c => (Cluster: (Cluster?)c, Score: Vectors.Cosine(c.Centroid, print)))
+        .OrderByDescending(x => x.Score)
+        .FirstOrDefault();
+
+    private (int Cluster, string? KnownName) StartNew(float[] print, string? knownName)
+    {
+        var cluster = new Cluster(_clusters.Count, print, knownName);
+        _clusters.Add(cluster);
+        return (cluster.Id, cluster.KnownName);
+    }
+
+    private void Learn(Cluster cluster, float[] print, double seconds, double score)
+    {
+        if (seconds < ReliableSeconds) return;
+        if (cluster.Count >= Settling && score < _threshold + ClearMargin) return;
+        cluster.Add(print);
+    }
 
     private sealed class Cluster(int id, float[] first, string? knownName)
     {

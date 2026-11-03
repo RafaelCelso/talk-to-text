@@ -89,7 +89,7 @@ public sealed class AudioFileTranscriber
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var raw = (await _transcriber.TranscribeAsync(span.Samples, bias, cancellationToken).ConfigureAwait(false)).Trim();
-                if (raw.Length == 0) continue;
+                if (raw.Length == 0 || SpeechNoise.IsNoise(raw, span.Duration.TotalSeconds)) continue;
 
                 var speakerId = SpeakerFor(span, transcript, speakerByCluster);
                 lock (transcript)
@@ -121,7 +121,7 @@ public sealed class AudioFileTranscriber
     /// <summary>The speaker for <paramref name="span"/>, adding "Pessoa N" the first time a voice is heard.</summary>
     private int SpeakerFor(SpeechSpan span, MeetingTranscript transcript, Dictionary<int, int> speakerByCluster)
     {
-        var (cluster, knownName) = _embedder is null ? (0, null) : _clusterer.Assign(_embedder.Embed(span.Samples));
+        var (cluster, knownName) = _embedder is null ? (0, null) : _clusterer.Assign(_embedder.Embed(span.Samples), span.Duration.TotalSeconds);
 
         lock (transcript)
         {

@@ -146,6 +146,38 @@ internal static class AiBenchmark
         return 0;
     }
 
+    /// <summary>
+    /// Summarises a saved meeting file with the local AI and writes the summary to
+    /// <paramref name="output"/> — the "Gerar resumo" button's own code, to check prompt
+    /// changes against a real meeting without the UI.
+    /// </summary>
+    public static int Summarize(string meetingFile, string output)
+    {
+        var meeting = System.Text.Json.JsonSerializer.Deserialize(File.ReadAllText(meetingFile), Core.MeetingJsonContext.Default.MeetingTranscript);
+        if (meeting is null)
+        {
+            Report("summarize: not a meeting file");
+            return 1;
+        }
+
+        SummaryModel.ConfigureBackend(useGpu: true);
+        using var model = new QwenLanguageModel();
+        var summarizer = new Core.MeetingSummarizer(model);
+
+        var clock = Stopwatch.StartNew();
+        var text = new StringBuilder();
+        foreach (var piece in Collect(summarizer.SummarizeAsync(meeting, new Steps(), CancellationToken.None))) text.Append(piece);
+
+        File.WriteAllText(output, text.ToString());
+        Report($"summarize: \"{meeting.Title}\" in {clock.Elapsed.TotalSeconds:F0} s → {output}");
+        return 0;
+    }
+
+    private sealed class Steps : IProgress<Core.SummaryProgress>
+    {
+        public void Report(Core.SummaryProgress value) => AiBenchmark.Report($"summarize: step {value.Step} of {value.Steps}");
+    }
+
     private static IEnumerable<string> Collect(IAsyncEnumerable<string> pieces)
     {
         var e = pieces.GetAsyncEnumerator();

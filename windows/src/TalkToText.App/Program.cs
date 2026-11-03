@@ -35,6 +35,11 @@ public static class Program
             return AiBenchmark.ExportNewestPdf(args[1]);
         }
 
+        if (args.Length > 2 && args[0].Equals("--summarize", StringComparison.OrdinalIgnoreCase))
+        {
+            return AiBenchmark.Summarize(args[1], args[2]);
+        }
+
         if (args.Length > 0 && args[0].Equals("--read-selection", StringComparison.OrdinalIgnoreCase))
         {
             return AiBenchmark.ReadSelection();

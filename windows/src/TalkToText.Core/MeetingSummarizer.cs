@@ -24,23 +24,37 @@ public readonly record struct SummaryProgress(int Step, int Steps, bool Writing)
 /// The prompt insists on using only what is in the transcript: small models fill gaps with
 /// plausible inventions, and a meeting summary that invents a decision is worse than none.
 /// </para>
+/// <para>
+/// <b>It also insists on specifics.</b> A real 30-minute Teams call about a refund process
+/// came back as "the meeting discussed the flows" and "Nada foi combinado." over a call full
+/// of agreements — who would send which report, which client to start with, what the new
+/// system must allow. The prompt now names what counts as an agreement, asks for the names,
+/// systems, companies and numbers as said, and the answer and notes got room to hold them.
+/// </para>
 /// </remarks>
 public sealed class MeetingSummarizer
 {
-    /// <summary>Tokens kept back for the instructions and the answer.</summary>
-    private const int Reserve = 1800;
+    /// <summary>Tokens kept back for the instructions and the quoted number lines.</summary>
+    private const int Instructions = 1500;
 
-    /// <summary>Longest summary, in tokens.</summary>
-    public const int SummaryTokens = 700;
-
-    /// <summary>Longest set of notes per chunk, in tokens.</summary>
-    private const int NoteTokens = 350;
+    /// <summary>A model with at least this much context is a cloud one, with room to spare.</summary>
+    private const int LargeContext = 16_000;
 
     internal const string SystemPrompt =
         "Você resume conversas — reuniões e gravações — em português do Brasil. Use apenas o que "
         + "está na transcrição: não invente nomes, datas, números nem decisões, e não torne nada "
         + "mais preciso do que foi dito — \"hoje à tarde\" não vira um horário. Se algo não foi "
-        + "dito, não escreva.";
+        + "dito, não escreva. Seja específico: cite as pessoas, empresas, clientes, sistemas, "
+        + "produtos, quantidades e prazos com os nomes e números que foram ditos. Nunca escreva "
+        + "frases vagas como \"foi discutido o processo\" — diga o que foi dito sobre ele. A "
+        + "transcrição vem de reconhecimento de voz: nomes próprios podem vir escritos de jeitos "
+        + "diferentes, e às vezes a fala de uma pessoa aparece com o nome de outra.";
+
+    /// <summary>Longest summary, in tokens: a local 3B model writes ~9 tokens a second.</summary>
+    public static int SummaryTokens(ILanguageModel model) => model.ContextTokens >= LargeContext ? 4000 : 1100;
+
+    /// <summary>Longest set of notes per chunk, in tokens.</summary>
+    private static int NoteTokens(ILanguageModel model) => model.ContextTokens >= LargeContext ? 1500 : 550;
 
     private readonly ILanguageModel _model;
     private readonly string _system;
@@ -76,7 +90,8 @@ public sealed class MeetingSummarizer
     {
         var lines = Lines(meeting);
         // A long instruction from the user takes room from the transcript, not from the answer.
-        var budget = Math.Max(1000, _model.ContextTokens - Reserve - _model.CountTokens(_system));
+        var reserve = Instructions + Math.Max(SummaryTokens(_model), NoteTokens(_model));
+        var budget = Math.Max(1000, _model.ContextTokens - reserve - _model.CountTokens(_system));
         var chunks = Chunk(lines, budget);
         var steps = chunks.Count == 1 ? 1 : chunks.Count + 1;
 
@@ -92,7 +107,7 @@ public sealed class MeetingSummarizer
             {
                 progress?.Report(new SummaryProgress(i + 1, steps, Writing: false));
                 var note = new StringBuilder();
-                await foreach (var piece in _model.CompleteAsync(_system, NotesRequest(chunks[i], i + 1, chunks.Count), NoteTokens, cancellationToken).ConfigureAwait(false))
+                await foreach (var piece in _model.CompleteAsync(_system, NotesRequest(chunks[i], i + 1, chunks.Count), NoteTokens(_model), cancellationToken).ConfigureAwait(false))
                 {
                     note.Append(piece);
                 }
@@ -104,7 +119,7 @@ public sealed class MeetingSummarizer
         }
 
         progress?.Report(new SummaryProgress(steps, steps, Writing: true));
-        await foreach (var piece in _model.CompleteAsync(_system, SummaryRequest(meeting, material, fromNotes: chunks.Count > 1), SummaryTokens, cancellationToken).ConfigureAwait(false))
+        await foreach (var piece in _model.CompleteAsync(_system, SummaryRequest(meeting, material, fromNotes: chunks.Count > 1), SummaryTokens(_model), cancellationToken).ConfigureAwait(false))
         {
             yield return piece;
         }
@@ -169,16 +184,20 @@ public sealed class MeetingSummarizer
             Responda exatamente neste formato, em Markdown, sem nada antes ou depois:
 
             ## Resumo
-            (2 a 4 frases sobre o objetivo e o resultado da conversa)
+            (3 a 5 frases: o objetivo da conversa, o que foi apresentado ou levantado e a que se chegou, com os nomes de pessoas, empresas, sistemas e produtos citados)
 
             ## Principais pontos
-            - (um item por assunto discutido)
+            - Assunto: o que foi dito sobre ele — como funciona hoje, problemas, exemplos, quantidades e quem disse
+            (um item por fato importante, na ordem da conversa; vários itens sobre o mesmo assunto são bem-vindos)
 
             ## Decisões e combinados
-            - (tudo o que ficou decidido, combinado, registrado, aberto ou prometido — um registro aberto ou um reembolso aceito também conta; escreva "Nada foi combinado." só se de fato nada foi)
+            - (cada coisa decidida, combinada, pedida e aceita, sugerida e aprovada, registrado, aberto ou prometido, dizendo quem e o quê — um registro aberto ou um reembolso aceito também conta. Contam frases como "eu te mando", "vou pedir para ela mandar", "vamos começar por", "ela vai levantar", "tem que ser parametrizável", "não vai migrar agora". Escreva "Nada foi combinado." só se de fato nada foi)
 
             ## Próximos passos
-            - Quem vai fazer: o que vai fazer (prazo, se foi dito)
+            - Quem vai fazer: o que vai fazer (prazo, se foi dito) — só tarefas que alguém ficou de fazer depois da conversa, como mandar, levantar, verificar ou pedir algo; não repita aqui os itens de "Decisões e combinados"
+
+            ## Pontos em aberto
+            - (perguntas que ficaram sem resposta, coisas a confirmar ou verificar; se não houver nenhuma, não escreva esta seção)
 
             Se o contexto do usuário pedir outras informações, acrescente uma seção para cada uma depois destas.
             {NumberHints(meeting)}
@@ -195,7 +214,8 @@ public sealed class MeetingSummarizer
     /// </summary>
     internal static string NumberHints(MeetingTranscript meeting)
     {
-        var lines = NumberLines(meeting).Select(m => $"- {m.Text}").ToList();
+        // Capped per line: a long monologue with one number in it would eat the context.
+        var lines = NumberLines(meeting).Select(m => $"- {Clip(m.Text, 160)}").ToList();
 
         return lines.Count == 0
             ? string.Empty
@@ -206,10 +226,15 @@ public sealed class MeetingSummarizer
     private static readonly string[] NumberWords = [" dois ", " três ", " quatro ", " cinco ", " dez ", " quinze ", " trinta ", " cem ", " mil ", " dias úteis", " horas"];
 
     internal static string NotesRequest(string chunk, int part, int parts) => $"""
-        Esta é a parte {part} de {parts} de uma conversa. Liste em tópicos curtos o que foi
-        discutido, decidido e combinado nesta parte, dizendo quem disse cada coisa importante.
+        Esta é a parte {part} de {parts} de uma conversa. Anote em tópicos, com detalhes, o que
+        foi dito nesta parte: cada assunto e os fatos concretos sobre ele (como funciona,
+        problemas, exemplos, quantidades, nomes de empresas, clientes e sistemas), quem disse
+        cada coisa importante, e tudo o que foi decidido, combinado, pedido, prometido ou
+        deixado em aberto. Não generalize: estas notas são tudo o que vai sobrar desta parte.
 
         Transcrição:
         {chunk}
         """;
+
+    private static string Clip(string text, int length) => text.Length <= length ? text : text[..length].TrimEnd() + "…";
 }

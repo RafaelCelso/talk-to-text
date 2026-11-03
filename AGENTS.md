@@ -184,8 +184,19 @@ impressões de voz do WeSpeaker (limiar 0,65 — medido: mesma voz 0,86–0,94, 
 reunião **com o microfone aberto**, lido das **sessões de captura WASAPI ativas**. Não dos
 valores `LastUsedTime` do `CapabilityAccessManager` no registro: no Windows 11 build 26300 eles
 pararam de atualizar, e uma chamada do Teams em andamento passou despercebida. O registro é só
-um plano B. Ler quem está falando no Teams via UI Automation é experimental e não foi conferido
-numa chamada real.
+um plano B. Ler quem está falando no Teams via UI Automation é experimental.
+
+**Quem disse o quê numa chamada real** (reunião de 30 min no Teams, 2026-11-03): duas pessoas
+saíram como uma só, e sete "Participante N" fantasmas nasceram de "Okay.", "Thank you.",
+"Mm-hmm." — palavras em inglês que o Parakeet inventa sobre ruído curto. Por isso: um nome que
+o Teams mostra em ≥ 70% de ≥ 3 amostras durante a fala (`SpeakingLabel.Agreed`) vale mais que a
+impressão de voz, e se a voz casou com outra pessoa já nomeada, nasce um participante novo; só
+falas ≥ 2 s que casam com folga (≥ limiar + 0,1) mexem na média de um falante já assentado
+(`SpeakerClusterer`), porque a média contaminada puxava mais falas da segunda pessoa; falas
+< 1,5 s nunca criam participante; ruído curto transcrito como palavra de enchimento é descartado
+(`SpeechNoise` — sem "um" nem "a", que são palavras em português); e o VAD do loopback fecha a fala
+com 0,35 s de pausa, não 0,5, porque as pessoas do outro lado se respondem mais rápido que isso.
+Pessoas na mesma sala, no mesmo microfone, continuam indistinguíveis para o Teams.
 
 **O loopback dos alto-falantes passa por `BufferedWaveProvider`, que precisa de
 `ReadFully = false`.** Por padrão ele preenche o buffer vazio com silêncio em vez de devolver 0,
@@ -322,6 +333,12 @@ copiam ao pedir ajuda): ficam em `keys\<provedor>.key`, cifradas com DPAPI
 Windows) ficam só na memória. `Composition.CloudModel()` devolve o modelo da nuvem, ou null para a
 IA local, e o ditado, o Chat e os resumos usam o mesmo `ILanguageModel` — com a nuvem, nada é
 baixado nem carregado.
+
+**Resumos detalhados.** A mesma reunião voltou com "Nada foi combinado." e pontos genéricos. O
+prompt (`MeetingSummarizer`) pede nomes, sistemas, empresas e números como foram ditos, diz que
+"eu te mando", "vamos começar por" etc. contam como combinado, e tem a seção "Pontos em aberto";
+o resumo tem 1.100 tokens na IA local e 4.000 na nuvem (notas por parte: 550 / 1.500). Confira
+mudanças com `TalkToText.exe --summarize <reunião.json> <saída.md>` (IA local).
 
 **Resumos de reunião são só sob demanda** — o usuário pediu um botão "Gerar resumo", não um
 resumo automático; não faça isso rodar depois de toda reunião. Com a IA local, eles vêm de um modelo

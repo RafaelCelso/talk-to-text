@@ -51,15 +51,16 @@ public sealed class SileroSpeechSegmenter : ISpeechSegmenter
     private long _flushedOffset;
 
     /// <summary>Loads the VAD model from <see cref="MeetingModels.Directory"/>.</summary>
-    public SileroSpeechSegmenter()
+    /// <param name="minSilenceSeconds">How long a pause ends an utterance.</param>
+    public SileroSpeechSegmenter(float minSilenceSeconds = 0.5f)
     {
         var config = new VadModelConfig { SampleRate = AudioChunk.SampleRate, NumThreads = 1, Provider = "cpu" };
         config.SileroVad.Model = Path.Combine(MeetingModels.Directory, MeetingModels.VadFile);
         config.SileroVad.Threshold = 0.5f;
 
-        // Half a second of silence ends a turn: short enough that a reply becomes its own
-        // message, long enough not to split a sentence at every breath.
-        config.SileroVad.MinSilenceDuration = 0.5f;
+        // Half a second of silence ends a turn by default: short enough that a reply becomes
+        // its own message, long enough not to split a sentence at every breath.
+        config.SileroVad.MinSilenceDuration = minSilenceSeconds;
         config.SileroVad.MinSpeechDuration = 0.3f;
         config.SileroVad.WindowSize = Window;
 

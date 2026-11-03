@@ -123,7 +123,9 @@ public sealed class MeetingCoordinator : IAsyncDisposable
             microphone,
             loopback,
             new SileroSpeechSegmenter(),
-            new SileroSpeechSegmenter(),
+            // The other side of a call answers each other faster than half a second, and one
+            // utterance spanning two people is attributed whole to one of them.
+            new SileroSpeechSegmenter(minSilenceSeconds: 0.35f),
             _embedder,
             _composition.Transcriber!,
             _composition.Voices,

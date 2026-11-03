@@ -85,6 +85,26 @@ public sealed class MeetingSummarizerTests
         }
     }
 
+    [Fact]
+    public async Task The_prompt_asks_for_specifics_and_says_what_counts_as_an_agreement()
+    {
+        // A real call came back as "the meeting discussed the flows" and "Nada foi combinado."
+        var model = new FakeLanguageModel();
+        await Run(new MeetingSummarizer(model), Meeting(6));
+
+        var (system, user) = model.Requests[0];
+        system.ShouldContain("Seja específico");
+        user.ShouldContain("vamos começar por");
+        user.ShouldContain("## Pontos em aberto");
+    }
+
+    [Fact]
+    public void A_cloud_model_gets_room_for_a_longer_summary()
+    {
+        MeetingSummarizer.SummaryTokens(new FakeLanguageModel(contextTokens: 32000))
+            .ShouldBeGreaterThan(MeetingSummarizer.SummaryTokens(new FakeLanguageModel(contextTokens: 8192)));
+    }
+
     /// <summary>Progress&lt;T&gt; posts to a sync context; tests want the callback inline.</summary>
     private sealed class SynchronousProgress(Action<SummaryProgress> report) : IProgress<SummaryProgress>
     {

@@ -103,6 +103,29 @@ public static class SpeakingLabel
 
         return null;
     }
+
+    /// <summary>Fewest samples of the meeting app's label that can outrank the voice.</summary>
+    public const int MinAgreeing = 3;
+
+    /// <summary>
+    /// The name the meeting app showed for nearly all of <paramref name="names"/> — the labels
+    /// sampled while one utterance was spoken — or null when it was not clear.
+    /// </summary>
+    /// <remarks>
+    /// Strict on purpose: the label lags the voice by a few hundred milliseconds, so an
+    /// utterance that starts as someone else stops can catch a sample of them.
+    /// </remarks>
+    public static string? Agreed(IReadOnlyCollection<string> names)
+    {
+        if (names.Count < MinAgreeing) return null;
+
+        var top = names
+            .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .First();
+
+        return top.Count() >= names.Count * 0.7 ? top.Key : null;
+    }
 }
 
 /// <summary>An audio file being read as 16 kHz mono float, start to finish.</summary>
