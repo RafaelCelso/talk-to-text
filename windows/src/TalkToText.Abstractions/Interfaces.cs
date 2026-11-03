@@ -186,3 +186,14 @@ public sealed class SystemClock : IClock
     /// <inheritdoc />
     public DateTimeOffset Now => DateTimeOffset.Now;
 }
+
+/// <summary>Encrypts secrets so only this user, on this computer, can read them back.</summary>
+/// <remarks>On Windows, DPAPI: an API key copied off the disk is useless anywhere else.</remarks>
+public interface ISecretProtector
+{
+    /// <summary>Encrypts <paramref name="data"/>.</summary>
+    byte[] Protect(byte[] data);
+
+    /// <summary>Decrypts what <see cref="Protect"/> produced.</summary>
+    byte[] Unprotect(byte[] data);
+}

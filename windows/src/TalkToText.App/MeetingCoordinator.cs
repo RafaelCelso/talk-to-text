@@ -39,6 +39,9 @@ public sealed class MeetingCoordinator : IAsyncDisposable
     /// <summary>The voices the user has named, recognised in later meetings and recordings.</summary>
     public KnownVoices Voices => _composition.Voices;
 
+    /// <summary>The cloud model chosen in Settings, or null for the local AI.</summary>
+    public CloudLanguageModel? CloudModel() => _composition.CloudModel();
+
     /// <summary>Whether meeting transcription can run here at all.</summary>
     public bool IsAvailable => _signals is not null && _composition.Transcriber is not null;
 
@@ -243,7 +246,8 @@ public sealed class MeetingCoordinator : IAsyncDisposable
 
         try
         {
-            if (!SummaryModel.IsInstalled())
+            var cloud = _composition.CloudModel();
+            if (cloud is null && !SummaryModel.IsInstalled())
             {
                 job.Status = "Baixando o modelo de resumo (2 GB)…";
                 Notify();
@@ -257,10 +261,10 @@ public sealed class MeetingCoordinator : IAsyncDisposable
                     job.Cancellation.Token).ConfigureAwait(true);
             }
 
-            job.Status = "Carregando o modelo…";
+            job.Status = cloud is null ? "Carregando o modelo…" : $"Enviando para {CloudAi.Info(cloud.Provider).Name}…";
             Notify();
 
-            using var model = await Task.Run(() => new QwenLanguageModel(), job.Cancellation.Token).ConfigureAwait(true);
+            using var model = cloud ?? await Task.Run<ILanguageModel>(() => new QwenLanguageModel(), job.Cancellation.Token).ConfigureAwait(true);
             var summarizer = new MeetingSummarizer(model, instruction);
             var progress = new Progress<SummaryProgress>(p =>
             {
@@ -294,9 +298,13 @@ public sealed class MeetingCoordinator : IAsyncDisposable
         catch (Exception e)
         {
             DiagnosticLog.Write($"meeting summary failed: {e}");
-            return e is HttpRequestException or IOException
-                ? "Não foi possível baixar o modelo. Verifique a internet e tente de novo."
-                : "Não foi possível gerar o resumo.";
+            return e switch
+            {
+                // From the cloud provider, its reason: a bad key, no credit, no connection.
+                HttpRequestException when _composition.UsesCloudAi => $"Não foi possível gerar o resumo: {e.Message}",
+                HttpRequestException or IOException => "Não foi possível baixar o modelo. Verifique a internet e tente de novo.",
+                _ => "Não foi possível gerar o resumo.",
+            };
         }
         finally
         {

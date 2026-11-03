@@ -135,6 +135,13 @@ public static class SelfTest
         }
         failures += Check("text injector constructs", PlatformFactory.CreateTextInjector() is not null);
 
+        // The cloud AI's API keys: encrypted and read back, or a saved key would be lost.
+        var protector = PlatformFactory.CreateSecretProtector();
+        failures += Check(
+            "API keys are encrypted with DPAPI",
+            protector is not null
+            && System.Text.Encoding.UTF8.GetString(protector.Unprotect(protector.Protect(System.Text.Encoding.UTF8.GetBytes("sk-test")))) == "sk-test");
+
         // Summaries: llama.cpp's native library must load out of the published bundle.
         var llama = Speech.SummaryModel.CheckNativeLibrary();
         if (llama is not null) Console.WriteLine($"         {llama}");

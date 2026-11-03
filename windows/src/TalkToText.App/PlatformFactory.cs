@@ -154,6 +154,10 @@ internal static class PlatformFactory
     public static ISelectionReader? CreateSelectionReader() =>
         Create<ISelectionReader>("ClipboardSelectionReader", []);
 
+    /// <summary>Encrypts the cloud AI's API keys with DPAPI. Null off Windows.</summary>
+    public static ISecretProtector? CreateSecretProtector() =>
+        Create<ISecretProtector>("DpapiSecretProtector", []);
+
     /// <summary>Creates the SendInput injector, or null off Windows.</summary>
     public static ITextInjector? CreateTextInjector() =>
         Create<ITextInjector>("SendInputTextInjector", []);

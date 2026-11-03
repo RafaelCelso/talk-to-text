@@ -47,6 +47,8 @@ public sealed class OnboardingWindow : Window
     private readonly TextBlock _downloadStatus = Ui.Text(string.Empty, Tokens.Fonts.Label, Tokens.Brushes.Muted);
     private readonly Button _download = Ui.Primary("Baixar agora (cerca de 2 GB)", Icons.Upload);
     private CancellationTokenSource? _downloading;
+    private readonly StackPanel _localAi = new() { Spacing = Tokens.Space.Base };
+    private AiChoicePicker? _aiChoice;
 
     private readonly TextBlock _testHint = Ui.Text(string.Empty, Tokens.Fonts.Body, Tokens.Brushes.Muted);
     private readonly TextBlock _testStatus = Ui.Text(string.Empty, Tokens.Fonts.Body);
@@ -446,33 +448,38 @@ public sealed class OnboardingWindow : Window
             ShowTest();
         });
 
-    private StackPanel AiPage()
+    /// <summary>
+    /// The local AI — downloaded here, or later on first use — or a cloud one with the user's
+    /// API key. Scrolls: the cloud choice adds a provider, a key and a model list.
+    /// </summary>
+    private ScrollViewer AiPage()
     {
-        var uses = new StackPanel
-        {
-            Spacing = Tokens.Space.Snug,
-            Children =
-            {
-                Bullet("Resumos de reuniões e de gravações de áudio, com decisões e próximos passos."),
-                Bullet("O Chat, onde você pergunta sobre o que foi dito nas suas reuniões e gravações."),
-                Bullet("Roda no seu computador: nada do que você grava é enviado para a internet."),
-            },
-        };
+        _aiChoice = new AiChoicePicker(_composition);
+        _aiChoice.SourceChanged += (_, _) => ShowAiState();
+        _localAi.Children.AddRange([_download, _downloadBar, _downloadStatus]);
 
-        return Page(
-            Icons.Sparkles,
-            "Baixar a IA local",
-            "Um download único de cerca de 2 GB (modelo Qwen 2.5 3B). Depois disso, tudo funciona offline.",
-            new StackPanel
-            {
-                Spacing = Tokens.Space.Base,
-                Children = { uses, _download, _downloadBar, _downloadStatus },
-            });
+        return new ScrollViewer
+        {
+            Content = Page(
+                Icons.Sparkles,
+                "Escolha a IA",
+                "Ela escreve os resumos de reuniões e gravações, responde no Chat e executa o modo comando. Dá para trocar depois em Configurações.",
+                new StackPanel
+                {
+                    Spacing = Tokens.Space.Roomy,
+                    Children = { _aiChoice, _localAi },
+                }),
+        };
     }
+
+    /// <summary>The AI choice on the AI step. Exposed for headless tests.</summary>
+    public AiChoicePicker? AiChoice => _aiChoice;
 
     /// <summary>Whether the AI is there, downloading or still to get — read each time the step shows.</summary>
     private void ShowAiState()
     {
+        // The download is only for the local AI.
+        _localAi.IsVisible = _aiChoice?.CloudSelected != true;
         if (_downloading is not null) return;
 
         var installed = SummaryModel.IsInstalled();
@@ -555,30 +562,6 @@ public sealed class OnboardingWindow : Window
             new Border { Margin = new Thickness(0, Tokens.Space.Snug, 0, 0), Child = body },
         },
     };
-
-    private static Grid Bullet(string text)
-    {
-        var line = Ui.Text(text, Tokens.Fonts.Body);
-        line.Margin = new Thickness(Tokens.Space.Base, 0, 0, 0);
-        Grid.SetColumn(line, 1);
-        return new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-            Children =
-            {
-                new Border
-                {
-                    Width = 6,
-                    Height = 6,
-                    CornerRadius = new CornerRadius(Tokens.Radius.Pill),
-                    Background = Tokens.Brushes.Primary,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 7, 0, 0),
-                },
-                line,
-            },
-        };
-    }
 
     private static void SetLabel(Button button, string label) =>
         button.Content = Ui.Text(label, Tokens.Fonts.Body, button.Classes.Contains("primary") ? new SolidColorBrush(Tokens.Colors.OnPrimary) : Tokens.Brushes.Foreground, FontWeight.Medium);

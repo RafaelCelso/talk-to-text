@@ -67,7 +67,7 @@ internal static class AiBenchmark
     public static int TryDictationAi(bool gpu)
     {
         SummaryModel.ConfigureBackend(gpu);
-        using var ai = new LocalAiRewriter();
+        using var ai = new AiRewriter(() => null);
 
         void Time(string label, Func<IProgress<Abstractions.RewriteProgress>, Task<string>> run)
         {

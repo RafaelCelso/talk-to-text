@@ -75,7 +75,7 @@ public sealed class SettingsView : UserControl
                 Ui.Divider(),
                 Ui.SettingRow(
                     "Revisar com IA",
-                    "A IA local corrige pontuação, acentos e concordância antes de colar. Leva alguns segundos a mais por ditado.",
+                    "A IA corrige pontuação, acentos e concordância antes de colar. Leva alguns segundos a mais por ditado.",
                     Switch(data.PolishWithAi, v => Save(Data with { PolishWithAi = v }))),
             },
         });
@@ -88,7 +88,7 @@ public sealed class SettingsView : UserControl
                     "Modo comando",
                     "Selecione um texto, segure o atalho abaixo e diga o que fazer: \"deixa mais formal\", \"traduz para inglês\", "
                     + "\"resume em três tópicos\". A IA reescreve e o resultado substitui a seleção. Sem nada selecionado, "
-                    + "ela escreve o que você pedir. Usa a IA local.",
+                    + "ela escreve o que você pedir. Usa a IA escolhida abaixo, em IA.",
                     Switch(data.CommandMode, v => Save(Data with { CommandMode = v }))),
                 Ui.Divider(),
                 Ui.SettingRow(
@@ -100,6 +100,19 @@ public sealed class SettingsView : UserControl
 
         var meetingsCard = BuildMeetingsCard(data);
         var aiCard = BuildAiCard(data);
+        AiChoice = new AiChoicePicker(composition);
+        var aiChoiceCard = Ui.Card(new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children =
+            {
+                Ui.Text("Qual IA usar", Tokens.Fonts.Body, weight: FontWeight.Medium),
+                Ui.Text(
+                    "Ela escreve os resumos, responde no Chat, revisa ditados e executa o modo comando.",
+                    Tokens.Fonts.Label, Tokens.Brushes.Muted),
+                new Border { Margin = new Thickness(0, Tokens.Space.Snug, 0, 0), Child = AiChoice },
+            },
+        });
 
         var openFolder = Ui.Secondary("Abrir pasta", Icons.Folder);
         openFolder.Click += (_, _) => OpenFolder(DataFolder.Path);
@@ -149,7 +162,9 @@ public sealed class SettingsView : UserControl
                     Ui.SectionTitle("Reuniões"),
                     meetingsCard,
                     Spacer(),
-                    Ui.SectionTitle("IA local"),
+                    Ui.SectionTitle("IA"),
+                    aiChoiceCard,
+                    new Border { Height = Tokens.Space.Base },
                     aiCard,
                     Spacer(),
                     Ui.SectionTitle("Modelo e aplicativo"),
@@ -164,6 +179,9 @@ public sealed class SettingsView : UserControl
     public bool IsRecordingShortcut => _shortcut.IsRecording;
 
     private SettingsData Data => _composition?.Settings.Data ?? new SettingsData();
+
+    /// <summary>The local-or-cloud AI choice. Exposed for headless tests.</summary>
+    public AiChoicePicker? AiChoice { get; private set; }
 
     /// <summary>The instruction field on the AI card. Exposed for headless tests.</summary>
     public TextBox? AiInstructionField { get; private set; }
@@ -231,7 +249,7 @@ public sealed class SettingsView : UserControl
                 Ui.Divider(),
                 Ui.SettingRow(
                     "Usar a placa de vídeo",
-                    "Deixa os resumos e o Chat mais rápidos quando o computador tem uma. "
+                    "Só para a IA local: deixa os resumos e o Chat mais rápidos quando o computador tem uma. "
                     + "A mudança vale na próxima vez que o app abrir.",
                     Switch(data.UseGpuForAi, v => Save(Data with { UseGpuForAi = v }))),
             },

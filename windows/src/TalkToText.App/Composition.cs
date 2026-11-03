@@ -30,10 +30,12 @@ public sealed class Composition : IAsyncDisposable
         DictationEngine? engine,
         IHotkeySource? hotkey,
         ITranscriber? transcriber,
-        LocalAiRewriter? rewriter,
+        AiRewriter? rewriter,
+        ApiKeyStore apiKeys,
         bool platformAvailable)
     {
         _rewriter = rewriter;
+        ApiKeys = apiKeys;
         Settings = settings;
         Dictionary = dictionary;
         Transcripts = transcripts;
@@ -43,10 +45,30 @@ public sealed class Composition : IAsyncDisposable
         IsPlatformAvailable = platformAvailable;
     }
 
-    private readonly LocalAiRewriter? _rewriter;
+    private readonly AiRewriter? _rewriter;
 
-    /// <summary>The local AI, kept loaded between uses; shared by dictation and the Chat. Null off Windows.</summary>
-    internal LocalAiRewriter? LocalAi => _rewriter;
+    /// <summary>
+    /// The AI dictation and the Chat share — the local model kept loaded between uses, or the
+    /// chosen cloud model. Null off Windows.
+    /// </summary>
+    internal AiRewriter? Ai => _rewriter;
+
+    /// <summary>The cloud AI's API keys, encrypted.</summary>
+    public ApiKeyStore ApiKeys { get; }
+
+    /// <summary>
+    /// The cloud model chosen in Settings, or null for the local AI — also when the choice is
+    /// incomplete: no model picked, or its key gone.
+    /// </summary>
+    public CloudLanguageModel? CloudModel() => CloudModel(Settings.Data, ApiKeys);
+
+    private static CloudLanguageModel? CloudModel(SettingsData data, ApiKeyStore keys) =>
+        data.AiProvider != AiProvider.Local && data.AiModel is { Length: > 0 } model && keys.Get(data.AiProvider) is { } key
+            ? new CloudLanguageModel(CloudAi.Http, data.AiProvider, key, model)
+            : null;
+
+    /// <summary>Whether a cloud model answers instead of the local AI — nothing to download then.</summary>
+    public bool UsesCloudAi => CloudModel() is not null;
 
     /// <summary>
     /// The speech recognizer, shared by dictation and meeting transcription — one copy of the
@@ -115,6 +137,7 @@ public sealed class Composition : IAsyncDisposable
         var settings = new AppSettings(AppSettings.DefaultPath);
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
+        var apiKeys = new ApiKeyStore(ApiKeyStore.DefaultDirectory, PlatformFactory.CreateSecretProtector());
 
         var capture = PlatformFactory.CreateAudioCapture();
         var hotkey = PlatformFactory.CreateHotkeySource();
@@ -122,7 +145,7 @@ public sealed class Composition : IAsyncDisposable
 
         DictationEngine? engine = null;
         ITranscriber? transcriber = null;
-        LocalAiRewriter? rewriter = null;
+        AiRewriter? rewriter = null;
         var available = capture is not null && hotkey is not null && injector is not null;
 
         if (available)
@@ -135,7 +158,7 @@ public sealed class Composition : IAsyncDisposable
                 capture!, hotkey!, transcriber, injector!,
                 () => dictionary.Entries);
 
-            rewriter = new LocalAiRewriter();
+            rewriter = new AiRewriter(() => CloudModel(settings.Data, apiKeys));
             engine.Rewriter = rewriter;
             engine.SelectionReader = PlatformFactory.CreateSelectionReader();
 
@@ -185,7 +208,7 @@ public sealed class Composition : IAsyncDisposable
 
         if (!available) DiagnosticLog.Write("started without the Windows platform layer; dictation is off");
 
-        return new Composition(settings, dictionary, transcripts, engine, hotkey, transcriber, rewriter, available);
+        return new Composition(settings, dictionary, transcripts, engine, hotkey, transcriber, rewriter, apiKeys, available);
     }
 
     /// <inheritdoc />

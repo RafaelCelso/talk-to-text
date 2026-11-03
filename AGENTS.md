@@ -278,13 +278,13 @@ pelo id clássico 1001, então scripts de teste não conseguem preenchê-la.
 perguntas sobre o assistente são respondidos sem ler transcrições; uma pergunta que não
 compartilha nenhuma palavra com nenhuma reunião não recebe trechos (antes era completada com
 trechos sem relação); uma continuação curta é buscada junto com a pergunta anterior. O Chat
-pega emprestado o modelo já carregado do ditado (`LocalAiRewriter.AcquireAsync`), então não há
+pega emprestado o modelo já carregado do ditado (`AiRewriter.AcquireAsync`), então não há
 espera de carregamento entre mensagens nem duas cópias.
 
 **Limpeza do ditado e modo comando.** `Core/SpeechCleanup.cs` tira "éé", "hã", "hum" e uma
 palavra curta dita duas vezes, por regra e na hora (ligado por padrão) — nunca um "é" sozinho,
 que é o verbo. "Revisar com IA" (`PolishWithAi`, desligado por padrão) passa cada ditado pelo
-`ITextRewriter` (`App/LocalAiRewriter.cs`, o mesmo Qwen, mantido carregado 5 minutos após o
+`ITextRewriter` (`App/AiRewriter.cs`, o mesmo Qwen, mantido carregado 5 minutos após o
 uso): ~5 s com o modelo carregado, ~12 s a frio no Ryzen 4600H; se for lento demais, falhar, ou
 devolver algo muito mais curto ou longo do que foi dito, o ditado é digitado como estava. **O
 modo comando** (desligado por padrão, Shift + Win) é um segundo `ShortcutDetector` no
@@ -309,9 +309,23 @@ download da IA local (~2 GB, continua se o usuário seguir em frente) e a instru
 Cada "Continuar" salva sua etapa na hora; terminar, pular tudo ou fechar a janela a marca como
 concluída. Configurações → "Configuração inicial" a abre de novo.
 
+**IA local ou na nuvem** (`Core/CloudAi.cs`, `Views/AiChoicePicker.cs`, em Configurações → IA e
+na etapa de IA da configuração inicial): o usuário escolhe o Qwen local ou um provedor com a
+própria chave de API — OpenAI, Anthropic, Gemini, xAI (Grok), Mistral, DeepSeek. A chave é
+validada listando os modelos dela (a chamada autenticada mais barata, e grátis), e o modelo é
+escolhido dessa lista; nada muda para a nuvem até um modelo ser escolhido. HTTP puro, sem SDKs:
+OpenAI, xAI, Mistral e DeepSeek usam o `chat/completions` da OpenAI; Anthropic e Gemini têm o
+formato próprio. Para a OpenAI, `max_completion_tokens` e nenhuma temperatura — os modelos de
+raciocínio recusam o resto. **As chaves nunca vão para o `settings.json`** (que as pessoas
+copiam ao pedir ajuda): ficam em `keys\<provedor>.key`, cifradas com DPAPI
+(`Platform.Windows/DpapiSecretProtector.cs`, via `ISecretProtector`); sem DPAPI (fora do
+Windows) ficam só na memória. `Composition.CloudModel()` devolve o modelo da nuvem, ou null para a
+IA local, e o ditado, o Chat e os resumos usam o mesmo `ILanguageModel` — com a nuvem, nada é
+baixado nem carregado.
+
 **Resumos de reunião são só sob demanda** — o usuário pediu um botão "Gerar resumo", não um
-resumo automático; não faça isso rodar depois de toda reunião. Eles vêm de um modelo local, sem
-chave de API: Qwen2.5-3B-Instruct Q4_K_M (2,1 GB, baixado no primeiro resumo para
+resumo automático; não faça isso rodar depois de toda reunião. Com a IA local, eles vêm de um modelo
+local, sem chave de API: Qwen2.5-3B-Instruct Q4_K_M (2,1 GB, baixado no primeiro resumo para
 `%LOCALAPPDATA%\TalkToText\models\summary`) pelo backend de CPU do LLamaSharp, cerca de 6
 tokens/s. Reuniões longas são resumidas em map-reduce (`TalkToText.Core/MeetingSummarizer.cs`).
 **As DLLs nativas do llama.cpp precisam ficar soltas ao lado do exe** em

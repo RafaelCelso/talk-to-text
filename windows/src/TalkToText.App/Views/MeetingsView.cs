@@ -522,9 +522,11 @@ public sealed class ChatView : UserControl
         generate.IsEnabled = job is null;
         generate.Click += async (_, _) => await GenerateAsync().ConfigureAwait(true);
 
-        var hint = Speech.SummaryModel.IsInstalled()
-            ? "Escrito por um modelo local: nada sai do seu computador. Leva alguns minutos."
-            : "Escrito por um modelo local: nada sai do seu computador. Na primeira vez baixa 2 GB.";
+        var hint = _coordinator?.CloudModel() is { } cloud
+            ? $"Escrito por {CloudAi.Info(cloud.Provider).Name}, modelo {cloud.Model}, com a sua chave de API: a transcrição é enviada ao provedor."
+            : Speech.SummaryModel.IsInstalled()
+                ? "Escrito por um modelo local: nada sai do seu computador. Leva alguns minutos."
+                : "Escrito por um modelo local: nada sai do seu computador. Na primeira vez baixa 2 GB.";
         if (!string.IsNullOrWhiteSpace(_instruction?.Invoke())) hint += " Segue a sua instrução das Configurações.";
 
         var row = new StackPanel

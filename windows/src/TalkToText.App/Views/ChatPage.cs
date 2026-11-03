@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using TalkToText.Abstractions;
 using TalkToText.App.Controls;
 using TalkToText.App.Design;
 using TalkToText.Core;
@@ -507,7 +508,8 @@ public sealed class ChatPage : UserControl
 
         try
         {
-            if (!SummaryModel.IsInstalled())
+            var cloud = _composition.CloudModel();
+            if (cloud is null && !SummaryModel.IsInstalled())
             {
                 thinking.SetStep("Baixando a IA (2 GB, só na primeira vez)…");
                 await MeetingCoordinator.DownloadFileAsync(
@@ -519,8 +521,9 @@ public sealed class ChatPage : UserControl
             thinking.SetStep("Preparando a IA…");
 
             // The model dictation keeps loaded, when there is one: no load wait between messages.
-            using var lease = _composition.LocalAi is { } shared ? await shared.AcquireAsync(running.Token).ConfigureAwait(true) : null;
-            using var own = lease is null ? await Task.Run(() => new QwenLanguageModel(), running.Token).ConfigureAwait(true) : null;
+            // With a cloud model, AcquireAsync hands that back and nothing is loaded.
+            using var lease = _composition.Ai is { } shared ? await shared.AcquireAsync(running.Token).ConfigureAwait(true) : null;
+            using var own = lease is null ? cloud ?? await Task.Run<ILanguageModel>(() => new QwenLanguageModel(), running.Token).ConfigureAwait(true) : null;
             var assistant = new TranscriptAssistant(lease?.Model ?? own!);
             thinking.SetStep("Procurando nas suas transcrições…");
 

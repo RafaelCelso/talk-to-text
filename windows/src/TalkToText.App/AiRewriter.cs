@@ -5,16 +5,23 @@ using TalkToText.Speech;
 namespace TalkToText.App;
 
 /// <summary>
-/// The local Qwen model as dictation uses it: tidying a dictation, and carrying out spoken
-/// commands on the selected text.
+/// The AI as dictation uses it — tidying a dictation, and carrying out spoken commands on the
+/// selected text — whether that is the local Qwen or a cloud model the user chose.
 /// </summary>
 /// <remarks>
-/// Loading takes a few seconds, which would land on every dictation, so the model stays loaded
-/// for <see cref="KeepWarm"/> after the last use and is then let go — it holds about 2.5 GB.
-/// The Chat borrows the same loaded model (<see cref="AcquireAsync"/>), so a conversation
-/// answers without the wait and two copies are never in memory at once.
+/// <para>
+/// Loading the local model takes a few seconds, which would land on every dictation, so it stays
+/// loaded for <see cref="KeepWarm"/> after the last use and is then let go — it holds about
+/// 2.5 GB. The Chat borrows the same loaded model (<see cref="AcquireAsync"/>), so a
+/// conversation answers without the wait and two copies are never in memory at once.
+/// </para>
+/// <para>
+/// With a cloud provider chosen, <paramref name="cloud"/> hands back its model and nothing is
+/// loaded or waited for: requests to a provider can run side by side.
+/// </para>
 /// </remarks>
-internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
+/// <param name="cloud">The cloud model to use instead of the local one, read on every use; null for the local one.</param>
+internal sealed class AiRewriter(Func<ILanguageModel?> cloud) : ITextRewriter, IDisposable
 {
     private static readonly TimeSpan KeepWarm = TimeSpan.FromMinutes(5);
 
@@ -46,13 +53,15 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
     }
 
     /// <summary>
-    /// The loaded model, loading it if it is not, for a caller that drives it itself. Nobody
-    /// else uses it until the lease is disposed; then it stays loaded for <see cref="KeepWarm"/>.
+    /// The model to use, for a caller that drives it itself: the chosen cloud model, or the
+    /// local one, loaded if it is not. Nobody else uses the local one until the lease is
+    /// disposed; then it stays loaded for <see cref="KeepWarm"/>.
     /// </summary>
     /// <param name="cancellationToken">Gives up waiting.</param>
     /// <param name="loading">Called before the model is loaded, when it has to be.</param>
     public async Task<Lease> AcquireAsync(CancellationToken cancellationToken, Action? loading = null)
     {
+        if (cloud() is { } remote) return new Lease(remote, static () => { });
         if (!SummaryModel.IsInstalled()) throw new InvalidOperationException("a IA local ainda não foi baixada");
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -100,19 +109,20 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
 
             return Unquoted(answer.ToString().Trim());
         }
-        catch (Exception e) when (e is LLama.Exceptions.RuntimeError or LLama.Exceptions.LLamaDecodeError or LLama.Exceptions.LoadWeightsFailedException)
+        catch (Exception e) when (e is LLama.Exceptions.RuntimeError or LLama.Exceptions.LLamaDecodeError or LLama.Exceptions.LoadWeightsFailedException
+                                       or HttpRequestException or System.Text.Json.JsonException)
         {
             throw new InvalidOperationException(e.Message, e);
         }
     }
 
     /// <summary>The model, lent until disposed.</summary>
-    public sealed class Lease(QwenLanguageModel model, Action giveBack) : IDisposable
+    public sealed class Lease(ILanguageModel model, Action giveBack) : IDisposable
     {
         private int _returned;
 
-        /// <summary>The loaded model.</summary>
-        public QwenLanguageModel Model => model;
+        /// <summary>The model.</summary>
+        public ILanguageModel Model => model;
 
         /// <inheritdoc />
         public void Dispose()

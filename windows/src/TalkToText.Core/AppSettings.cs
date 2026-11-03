@@ -72,6 +72,16 @@ public sealed record SettingsData
     /// <summary>Whether the local AI tidies every dictation before it is typed. Adds a few seconds.</summary>
     public bool PolishWithAi { get; set; }
 
+    /// <summary>
+    /// Which AI writes summaries, answers the Chat and runs commands: the local Qwen, or a cloud
+    /// provider with the user's own API key (kept apart, encrypted, in <see cref="ApiKeyStore"/>).
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<AiProvider>))]
+    public AiProvider AiProvider { get; set; } = AiProvider.Local;
+
+    /// <summary>The cloud model chosen from the provider's list — "gpt-4o-mini". Null with the local AI.</summary>
+    public string? AiModel { get; set; }
+
     /// <summary>Whether the command shortcut is listened for.</summary>
     public bool CommandMode { get; set; }
 
