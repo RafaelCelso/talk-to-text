@@ -127,6 +127,8 @@ public sealed class RecordingOverlay : Window
         };
 
         _messageText = Ui.Text("Transcrevendo…", Tokens.Fonts.Label, weight: FontWeight.Medium);
+        _messageText.MaxWidth = MaxPillWidth - 64;
+        _messageText.TextTrimming = TextTrimming.CharacterEllipsis;
         _message = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -209,7 +211,11 @@ public sealed class RecordingOverlay : Window
     /// <summary>
     /// Moves the pill to match the engine. Called every frame; cheap when nothing changed.
     /// </summary>
-    public void Apply(DictationState state, double level, DateTimeOffset startedAt)
+    /// <param name="state">The engine's state.</param>
+    /// <param name="level">Input level, 0…1, for the waveform.</param>
+    /// <param name="startedAt">When the recording started, for the timer.</param>
+    /// <param name="status">What the engine is doing after recording — "Traduzindo para o inglês… 45%".</param>
+    public void Apply(DictationState state, double level, DateTimeOffset startedAt, string status = "Transcrevendo…")
     {
         switch (state)
         {
@@ -221,7 +227,8 @@ public sealed class RecordingOverlay : Window
                 break;
 
             case DictationState.Transcribing:
-                if (Phase is OverlayPhase.Recording) ShowMessage("Transcrevendo…", spinner: true);
+                if (Phase is OverlayPhase.Recording) ShowMessage(status, spinner: true);
+                else if (Phase is OverlayPhase.Transcribing && status != _messageText.Text) ShowMessage(status, spinner: true);
                 break;
 
             default:
@@ -249,6 +256,7 @@ public sealed class RecordingOverlay : Window
 
         _waveform.Clear();
         _timer.Text = "0:00";
+        Width = Tokens.Size.PillWidth;
         _live.Opacity = 1;
         _message.Opacity = 0;
 
@@ -290,7 +298,26 @@ public sealed class RecordingOverlay : Window
 
         _live.Opacity = 0;
         _message.Opacity = 1;
+        FitMessage();
     }
+
+    /// <summary>
+    /// Widens the pill for a message that does not fit, and keeps it centred. It only grows
+    /// during one dictation: shrinking back each time a percentage changes would make it twitch.
+    /// </summary>
+    private void FitMessage()
+    {
+        _message.Measure(Size.Infinity);
+        var wanted = Math.Min(MaxPillWidth, Math.Ceiling(_message.DesiredSize.Width + (2 * Tokens.Space.Wide)));
+        if (wanted <= Width) return;
+
+        Width = wanted;
+        _restingPosition = BottomCentre();
+        ApplyReveal();
+    }
+
+    /// <summary>The widest the pill grows for a long message; the text is cut short beyond it.</summary>
+    private const double MaxPillWidth = 420;
 
     private void Leave()
     {

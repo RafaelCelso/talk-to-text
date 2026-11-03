@@ -173,7 +173,7 @@ public sealed class HomeView : UserControl
         _status.Text = state switch
         {
             DictationState.Recording => "Gravando",
-            DictationState.Transcribing => "Transcrevendo…",
+            DictationState.Transcribing => ActivityText.Describe(_composition?.Engine?.Activity),
             _ => "Pronto para ditar",
         };
 

@@ -91,6 +91,44 @@ public sealed class DictationAiTests
     }
 
     [Fact]
+    public async Task A_command_shows_what_the_ai_is_doing_and_how_far_it_got()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        await using var engine = Build(hotkey, "traduz para inglês", injector);
+        DictationActivity? during = null;
+        engine.Rewriter = new FakeRewriter { Command = (_, _) => "Hello", During = () => during = engine.Activity };
+        engine.SelectionReader = new FakeSelection("Olá, tudo bem?"); // 14 characters; the fake has written 5
+        engine.CommandShortcut = new Shortcut(Keys.Shift, Keys.Windows);
+
+        await SayAsync(hotkey, engine, ShiftWin);
+
+        during.ShouldNotBeNull();
+        during.Step.ShouldBe(DictationStep.AiWriting);
+        during.Instruction.ShouldBe("traduz para inglês");
+        during.HasSelection.ShouldBeTrue();
+        during.Progress!.Value.ShouldBe(5 / 14.0, 0.001);
+        engine.Activity.ShouldBeNull(); // done
+    }
+
+    [Fact]
+    public async Task Polishing_shows_as_such_without_an_instruction()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        await using var engine = Build(hotkey, "eu vou amanha", injector);
+        DictationActivity? during = null;
+        engine.Rewriter = new FakeRewriter { Polish = t => "Eu vou amanhã.", During = () => during = engine.Activity };
+        engine.PolishWithAi = true;
+
+        await SayAsync(hotkey, engine);
+
+        during.ShouldNotBeNull();
+        during.Polishing.ShouldBeTrue();
+        during.Instruction.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task With_nothing_selected_a_command_writes_what_it_asks_for()
     {
         var hotkey = new FakeHotkeySource();
@@ -129,10 +167,27 @@ public sealed class DictationAiTests
 
         public Func<string, string?, string> Command { get; init; } = (i, _) => i;
 
-        public Task<string> PolishAsync(string text, CancellationToken cancellationToken) => Task.FromResult(Polish(text));
+        /// <summary>Called while the "AI" works, to look at the engine mid-rewrite.</summary>
+        public Action? During { get; init; }
 
-        public Task<string> CommandAsync(string instruction, string? selection, CancellationToken cancellationToken) =>
-            Task.FromResult(Command(instruction, selection));
+        public Task<string> PolishAsync(string text, CancellationToken cancellationToken, IProgress<RewriteProgress>? progress = null)
+        {
+            Work(progress);
+            return Task.FromResult(Polish(text));
+        }
+
+        public Task<string> CommandAsync(
+            string instruction, string? selection, CancellationToken cancellationToken, IProgress<RewriteProgress>? progress = null)
+        {
+            Work(progress);
+            return Task.FromResult(Command(instruction, selection));
+        }
+
+        private void Work(IProgress<RewriteProgress>? progress)
+        {
+            progress?.Report(new RewriteProgress(RewriteStage.Writing, 5));
+            During?.Invoke();
+        }
     }
 
     private sealed class FakeSelection(string? selection) : ISelectionReader

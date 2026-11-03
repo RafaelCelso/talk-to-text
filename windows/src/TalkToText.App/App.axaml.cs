@@ -164,7 +164,7 @@ public partial class App : Application
         {
             // Turning the pill off mid-recording lets it finish what it was showing.
             if (!composition.Settings.Data.ShowOverlay && overlay.Phase == OverlayPhase.Hidden) return;
-            overlay.Apply(engine.State, engine.Level, engine.RecordingStartedAt);
+            overlay.Apply(engine.State, engine.Level, engine.RecordingStartedAt, ActivityText.Describe(engine.Activity));
         };
         frame.Start();
         return overlay;

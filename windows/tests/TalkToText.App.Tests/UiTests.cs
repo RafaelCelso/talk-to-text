@@ -606,6 +606,24 @@ public sealed class RecordingOverlayTests
     }
 
     [AvaloniaFact]
+    public void Follows_what_the_engine_is_doing_and_widens_for_a_long_message()
+    {
+        var overlay = new RecordingOverlay();
+
+        overlay.Apply(DictationState.Recording, 0.1, Start);
+        overlay.Apply(DictationState.Transcribing, 0, Start, "Transcrevendo…");
+        overlay.Apply(DictationState.Transcribing, 0, Start, "Aplicando “deixa mais formal e mais curto”… 40%");
+
+        overlay.MessageText.ShouldBe("Aplicando “deixa mais formal e mais curto”… 40%");
+        overlay.Width.ShouldBeGreaterThan(Tokens.Size.PillWidth);
+
+        // The next dictation starts from the usual size.
+        overlay.Apply(DictationState.Idle, 0, Start);
+        overlay.Apply(DictationState.Recording, 0.1, Start);
+        overlay.Width.ShouldBe(Tokens.Size.PillWidth);
+    }
+
+    [AvaloniaFact]
     public void A_cancelled_recording_leaves_without_confirming_anything()
     {
         var overlay = new RecordingOverlay();

@@ -69,32 +69,52 @@ internal static class AiBenchmark
         SummaryModel.ConfigureBackend(gpu);
         using var ai = new LocalAiRewriter();
 
-        void Time(string label, Func<Task<string>> run)
+        void Time(string label, Func<IProgress<Abstractions.RewriteProgress>, Task<string>> run)
         {
             var clock = Stopwatch.StartNew();
-            var result = run().GetAwaiter().GetResult();
-            Report($"try-ai {label} ({clock.Elapsed.TotalSeconds:F1} s): {result.Replace('\n', ' ')}");
+            var stages = new Stages();
+            var result = run(stages).GetAwaiter().GetResult();
+            Report($"try-ai {label} ({clock.Elapsed.TotalSeconds:F1} s; {stages}): {result.Replace('\n', ' ')}");
         }
 
-        Time("polish 1", () => ai.PolishAsync("entao eu acho que a gente precisa fechar o orcamento ate sexta feira e mandar pro cliente", CancellationToken.None));
-        Time("polish 2", () => ai.PolishAsync("o relatorio ficou pronto mas faltou os graficos do terceiro trimestre", CancellationToken.None));
-        Time("formal", () => ai.CommandAsync("deixa mais formal", "oi, blz? manda o relatório até amanhã pfv", CancellationToken.None));
-        Time("english", () => ai.CommandAsync("traduz para inglês", "Obrigado pela reunião de hoje, seguem os próximos passos.", CancellationToken.None));
+        Time("polish 1", p => ai.PolishAsync("entao eu acho que a gente precisa fechar o orcamento ate sexta feira e mandar pro cliente", CancellationToken.None, p));
+        Time("polish 2", p => ai.PolishAsync("o relatorio ficou pronto mas faltou os graficos do terceiro trimestre", CancellationToken.None, p));
+        Time("formal", p => ai.CommandAsync("deixa mais formal", "oi, blz? manda o relatório até amanhã pfv", CancellationToken.None, p));
+        Time("english", p => ai.CommandAsync("traduz para inglês", "Obrigado pela reunião de hoje, seguem os próximos passos.", CancellationToken.None, p));
         // A selection that is itself a request: it must be translated, not obeyed or half-translated.
-        Time("english 2", () => ai.CommandAsync(
+        Time("english 2", p => ai.CommandAsync(
             "Traduza para inglês.",
             "Me explique melhor como que funciona o 'Modo Comando'. Atualmente quando eu seleciono um texto e aperto as teclas de atalho...",
-            CancellationToken.None));
-        Time("spanish", () => ai.CommandAsync(
+            CancellationToken.None,
+            p));
+        Time("spanish", p => ai.CommandAsync(
             "Traduz isso pro espanhol",
             "Preciso que você revise o contrato até amanhã e me avise se tiver alguma cláusula estranha.",
-            CancellationToken.None));
-        Time("formal 2", () => ai.CommandAsync(
+            CancellationToken.None,
+            p));
+        Time("formal 2", p => ai.CommandAsync(
             "Deixa mais formal.",
             "Me explique melhor como que funciona o 'Modo Comando'. Atualmente quando eu seleciono um texto e aperto as teclas de atalho...",
-            CancellationToken.None));
-        Time("write", () => ai.CommandAsync("escreve uma frase curta agradecendo o cliente pela parceria", null, CancellationToken.None));
+            CancellationToken.None,
+            p));
+        Time("write", p => ai.CommandAsync("escreve uma frase curta agradecendo o cliente pela parceria", null, CancellationToken.None, p));
         return 0;
+    }
+
+    /// <summary>Counts the progress the AI reports, to check the pill has something to show.</summary>
+    private sealed class Stages : IProgress<Abstractions.RewriteProgress>
+    {
+        private readonly List<string> _seen = [];
+        private int _written;
+
+        public void Report(Abstractions.RewriteProgress value)
+        {
+            var name = value.Stage.ToString();
+            if (_seen.Count == 0 || _seen[^1] != name) _seen.Add(name);
+            _written = value.CharactersWritten;
+        }
+
+        public override string ToString() => $"{string.Join(" → ", _seen)}, {_written} chars";
     }
 
     /// <summary>Reads the selection in the app in front after two seconds — to check command mode's copy on a real machine.</summary>

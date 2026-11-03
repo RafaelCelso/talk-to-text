@@ -28,9 +28,9 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
     private Timer? _release;
 
     /// <inheritdoc />
-    public async Task<string> PolishAsync(string text, CancellationToken cancellationToken)
+    public async Task<string> PolishAsync(string text, CancellationToken cancellationToken, IProgress<RewriteProgress>? progress = null)
     {
-        var polished = await RunAsync(PolishInstruction, text, (text.Length / 2) + 64, cancellationToken).ConfigureAwait(false);
+        var polished = await RunAsync(PolishInstruction, text, (text.Length / 2) + 64, progress, cancellationToken).ConfigureAwait(false);
 
         // A "revision" much shorter or longer than what was said is the model answering it
         // or summarising it instead: type what the user said.
@@ -38,17 +38,20 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
     }
 
     /// <inheritdoc />
-    public Task<string> CommandAsync(string instruction, string? selection, CancellationToken cancellationToken)
+    public Task<string> CommandAsync(
+        string instruction, string? selection, CancellationToken cancellationToken, IProgress<RewriteProgress>? progress = null)
     {
         var request = CommandPrompt.Build(instruction, selection);
-        return RunAsync(request.System, request.User, request.MaxTokens, cancellationToken);
+        return RunAsync(request.System, request.User, request.MaxTokens, progress, cancellationToken);
     }
 
     /// <summary>
     /// The loaded model, loading it if it is not, for a caller that drives it itself. Nobody
     /// else uses it until the lease is disposed; then it stays loaded for <see cref="KeepWarm"/>.
     /// </summary>
-    public async Task<Lease> AcquireAsync(CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Gives up waiting.</param>
+    /// <param name="loading">Called before the model is loaded, when it has to be.</param>
+    public async Task<Lease> AcquireAsync(CancellationToken cancellationToken, Action? loading = null)
     {
         if (!SummaryModel.IsInstalled()) throw new InvalidOperationException("a IA local ainda não foi baixada");
 
@@ -60,6 +63,7 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
 
             if (_model is null)
             {
+                loading?.Invoke();
                 _model = await Task.Run(() => new QwenLanguageModel(), cancellationToken).ConfigureAwait(false);
                 DiagnosticLog.Write($"local AI loaded on the {(_model.OnGpu ? "graphics card" : "CPU")}");
             }
@@ -79,15 +83,19 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
         _gate.Release();
     }
 
-    private async Task<string> RunAsync(string system, string user, int maxTokens, CancellationToken cancellationToken)
+    private async Task<string> RunAsync(
+        string system, string user, int maxTokens, IProgress<RewriteProgress>? progress, CancellationToken cancellationToken)
     {
         try
         {
-            using var lease = await AcquireAsync(cancellationToken).ConfigureAwait(false);
+            using var lease = await AcquireAsync(
+                cancellationToken, () => progress?.Report(new RewriteProgress(RewriteStage.LoadingModel))).ConfigureAwait(false);
+            progress?.Report(new RewriteProgress(RewriteStage.Reading));
             var answer = new StringBuilder();
             await foreach (var piece in lease.Model.CompleteAsync(system, user, maxTokens, cancellationToken).ConfigureAwait(false))
             {
                 answer.Append(piece);
+                progress?.Report(new RewriteProgress(RewriteStage.Writing, answer.Length));
             }
 
             return Unquoted(answer.ToString().Trim());

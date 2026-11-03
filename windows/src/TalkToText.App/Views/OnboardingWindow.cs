@@ -433,7 +433,7 @@ public sealed class OnboardingWindow : Window
         _testStatus.Text = engine.State switch
         {
             DictationState.Recording => "Gravando…",
-            DictationState.Transcribing => "Transcrevendo…",
+            DictationState.Transcribing => ActivityText.Describe(_composition?.Engine?.Activity),
             _ when _heard is not null => $"Ouvimos: “{_heard}”. Funcionou! Em qualquer programa, o texto é escrito onde o cursor estiver.",
             _ => "Aguardando você falar…",
         };

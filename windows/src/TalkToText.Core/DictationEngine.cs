@@ -17,6 +17,47 @@ public enum DictationState
     Transcribing,
 }
 
+/// <summary>What the engine is doing between the key's release and the text being typed.</summary>
+public enum DictationStep
+{
+    /// <summary>Turning the audio into text.</summary>
+    Transcribing,
+
+    /// <summary>Loading the speech model first — the first dictation after starting.</summary>
+    LoadingSpeechModel,
+
+    /// <summary>Copying the text a command applies to.</summary>
+    ReadingSelection,
+
+    /// <summary>Loading the local AI into memory.</summary>
+    LoadingAi,
+
+    /// <summary>The AI is reading the request.</summary>
+    AiReading,
+
+    /// <summary>The AI is writing its answer.</summary>
+    AiWriting,
+
+    /// <summary>Typing the result into the focused app.</summary>
+    Typing,
+}
+
+/// <summary>
+/// Where a dictation is, in more detail than <see cref="DictationState.Transcribing"/> — so a
+/// command that takes a while shows what it is waiting on rather than a bare "Transcrevendo…".
+/// </summary>
+/// <param name="Step">What is happening.</param>
+/// <param name="Instruction">The spoken command, while one is being carried out.</param>
+/// <param name="Polishing">Whether the AI is tidying a dictation rather than carrying out a command.</param>
+/// <param name="Progress">How much of the AI's answer is written, 0…1, when it can be estimated.</param>
+/// <param name="HasSelection">Whether the command applies to selected text.</param>
+public sealed record DictationActivity(
+    DictationStep Step,
+    string? Instruction = null,
+    bool Polishing = false,
+    double? Progress = null,
+    bool HasSelection = false);
+
 /// <summary>One completed dictation.</summary>
 public sealed record DictationResult(
     DateTimeOffset At,
@@ -62,6 +103,9 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>Current state.</summary>
     public DictationState State { get; private set; } = DictationState.Idle;
+
+    /// <summary>What is happening while <see cref="State"/> is <see cref="DictationState.Transcribing"/>; null otherwise.</summary>
+    public DictationActivity? Activity { get; private set; }
 
     /// <summary>The keys that start dictation.</summary>
     public Shortcut Shortcut
@@ -414,6 +458,7 @@ public sealed class DictationEngine : IAsyncDisposable
             samples = _buffer;
             _buffer = null;
             Level = 0;
+            Activity = new DictationActivity(DictationStep.Transcribing);
             SetState(DictationState.Transcribing);
         }
         finally
@@ -429,6 +474,7 @@ public sealed class DictationEngine : IAsyncDisposable
         {
             _recording?.Dispose();
             _recording = null;
+            Activity = null;
             SetState(DictationState.Idle);
         }
     }
@@ -443,12 +489,14 @@ public sealed class DictationEngine : IAsyncDisposable
         var releasedAt = _clock.Now;
         var audio = new ReadOnlyMemory<float>(samples.ToArray());
 
+        if (!_transcriber.IsReady) Show(new DictationActivity(DictationStep.LoadingSpeechModel));
         if (!await EnsureLoadedAsync().ConfigureAwait(false))
         {
             Report("speech model is not loaded; nothing transcribed");
             return;
         }
 
+        Show(new DictationActivity(DictationStep.Transcribing));
         var entries = _dictionary();
         var bias = DictionaryCorrector.BiasPhrases(entries);
 
@@ -486,7 +534,8 @@ public sealed class DictationEngine : IAsyncDisposable
             using var limit = new CancellationTokenSource(PolishLimit);
             try
             {
-                var polished = (await Rewriter.PolishAsync(corrected, limit.Token).ConfigureAwait(false)).Trim();
+                var progress = Track(new DictationActivity(DictationStep.AiReading, Polishing: true), corrected.Length);
+                var polished = (await Rewriter.PolishAsync(corrected, limit.Token, progress).ConfigureAwait(false)).Trim();
                 if (polished.Length > 0)
                 {
                     // Again: the AI may have "corrected" a name back to how it sounds.
@@ -511,6 +560,7 @@ public sealed class DictationEngine : IAsyncDisposable
         // subscriber (history, UI) must never be able to stop it from arriving.
         if (InjectText)
         {
+            Show(new DictationActivity(DictationStep.Typing));
             var typed = await _injector.InjectAsync(corrected, CancellationToken.None).ConfigureAwait(false);
             Report(typed ? "typed into the focused app" : "typing was refused by the system");
         }
@@ -529,17 +579,23 @@ public sealed class DictationEngine : IAsyncDisposable
             return;
         }
 
+        if (SelectionReader is not null) Show(new DictationActivity(DictationStep.ReadingSelection, instruction));
         var selection = SelectionReader is null
             ? null
             : await SelectionReader.CopySelectionAsync(CancellationToken.None).ConfigureAwait(false);
         Report($"command \"{instruction}\" on {selection?.Length ?? 0} selected characters");
+
+        // With nothing selected there is no telling how long the answer will be.
+        var progress = Track(
+            new DictationActivity(DictationStep.AiReading, instruction, HasSelection: selection is not null),
+            selection?.Length);
 
         string result;
         using (var limit = new CancellationTokenSource(CommandLimit))
         {
             try
             {
-                result = (await Rewriter.CommandAsync(instruction, selection, limit.Token).ConfigureAwait(false)).Trim();
+                result = (await Rewriter.CommandAsync(instruction, selection, limit.Token, progress).ConfigureAwait(false)).Trim();
             }
             catch (Exception e) when (e is OperationCanceledException or InvalidOperationException)
             {
@@ -559,11 +615,51 @@ public sealed class DictationEngine : IAsyncDisposable
 
         if (InjectText)
         {
+            Show(new DictationActivity(DictationStep.Typing, instruction));
             var typed = await _injector.InjectAsync(result, CancellationToken.None).ConfigureAwait(false);
             Report(typed ? "command result typed into the focused app" : "typing was refused by the system");
         }
 
         Completed?.Invoke(this, done);
+    }
+
+    private void Show(DictationActivity activity)
+    {
+        Activity = activity;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Shows <paramref name="start"/>, then follows the AI's progress from there.
+    /// </summary>
+    /// <param name="start">The activity before the AI reports anything.</param>
+    /// <param name="expectedLength">
+    /// About how long the answer will be — a rewrite or a translation runs close to the length
+    /// of its input — or null when unknown. The estimate stops short of 100%: an answer that
+    /// runs longer would otherwise sit at "100%" while still writing.
+    /// </param>
+    private Relay Track(DictationActivity start, int? expectedLength)
+    {
+        Show(start);
+        return new Relay(p =>
+        {
+            var step = p.Stage switch
+            {
+                RewriteStage.LoadingModel => DictationStep.LoadingAi,
+                RewriteStage.Reading => DictationStep.AiReading,
+                _ => DictationStep.AiWriting,
+            };
+            double? fraction = step == DictationStep.AiWriting && expectedLength > 0
+                ? Math.Min(0.95, p.CharactersWritten / (double)expectedLength.Value)
+                : null;
+            Show(start with { Step = step, Progress = fraction });
+        });
+    }
+
+    /// <summary>Reports on the AI's own thread, where <see cref="Progress{T}"/> would post to a captured context.</summary>
+    private sealed class Relay(Action<RewriteProgress> report) : IProgress<RewriteProgress>
+    {
+        public void Report(RewriteProgress value) => report(value);
     }
 
     private void SetState(DictationState state)

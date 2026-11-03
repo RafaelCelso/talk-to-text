@@ -106,15 +106,41 @@ public interface ITextRewriter
     /// <paramref name="text"/> with punctuation and grammar fixed and hesitations gone, saying
     /// the same thing in the same words.
     /// </summary>
-    Task<string> PolishAsync(string text, CancellationToken cancellationToken);
+    /// <param name="text">What was dictated.</param>
+    /// <param name="cancellationToken">Gives up on the rewrite.</param>
+    /// <param name="progress">Where the AI is, for the user waiting on it; may be called from any thread.</param>
+    Task<string> PolishAsync(string text, CancellationToken cancellationToken, IProgress<RewriteProgress>? progress = null);
 
     /// <summary>
     /// Carries out <paramref name="instruction"/> on <paramref name="selection"/> — "deixa mais
     /// formal" — or, with nothing selected, writes what it asks for.
     /// </summary>
+    /// <param name="instruction">What the user said.</param>
+    /// <param name="selection">The selected text, or null.</param>
+    /// <param name="cancellationToken">Gives up on the command.</param>
+    /// <param name="progress">Where the AI is, for the user waiting on it; may be called from any thread.</param>
     /// <returns>The text to type in place of the selection.</returns>
-    Task<string> CommandAsync(string instruction, string? selection, CancellationToken cancellationToken);
+    Task<string> CommandAsync(
+        string instruction, string? selection, CancellationToken cancellationToken, IProgress<RewriteProgress>? progress = null);
 }
+
+/// <summary>What the local AI is doing with a rewrite.</summary>
+public enum RewriteStage
+{
+    /// <summary>Loading the model into memory — the first use after a while, a few seconds.</summary>
+    LoadingModel,
+
+    /// <summary>Reading the request, before the first word of the answer.</summary>
+    Reading,
+
+    /// <summary>Writing the answer.</summary>
+    Writing,
+}
+
+/// <summary>Progress of a rewrite.</summary>
+/// <param name="Stage">What the AI is doing.</param>
+/// <param name="CharactersWritten">How much of the answer exists so far.</param>
+public readonly record struct RewriteProgress(RewriteStage Stage, int CharactersWritten = 0);
 
 /// <summary>Turns audio into text.</summary>
 public interface ITranscriber : IAsyncDisposable
