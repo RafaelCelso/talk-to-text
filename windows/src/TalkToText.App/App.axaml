@@ -1,0 +1,114 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TalkToText.App.App"
+             RequestedThemeVariant="Dark">
+  <!-- Dark only, like OpenWhispr's charcoal theme. The Fluent accent is the brand blue, so
+       the stock controls (toggle switches, radio buttons, text boxes, scroll bars) match
+       the rest of the app without restyling each one. -->
+  <Application.Resources>
+    <Color x:Key="SystemAccentColor">#4577E9</Color>
+    <Color x:Key="SystemAccentColorDark1">#3466E2</Color>
+    <Color x:Key="SystemAccentColorDark2">#2A57C7</Color>
+    <Color x:Key="SystemAccentColorDark3">#2148A8</Color>
+    <Color x:Key="SystemAccentColorLight1">#5588F0</Color>
+    <Color x:Key="SystemAccentColorLight2">#6B98F3</Color>
+    <Color x:Key="SystemAccentColorLight3">#86ABF6</Color>
+    <!-- Glass, as everywhere else: translucent white over the dark shell, a brighter rim. -->
+    <SolidColorBrush x:Key="TextControlBackground" Color="#12FFFFFF" />
+    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#1AFFFFFF" />
+    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#0DFFFFFF" />
+    <SolidColorBrush x:Key="TextControlBorderBrush" Color="#24FFFFFF" />
+    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#38FFFFFF" />
+    <!-- Popups are windows of their own with no blur behind them, so they stay nearly opaque;
+         the rim and rounding carry the glass look. -->
+    <SolidColorBrush x:Key="FlyoutPresenterBackground" Color="#F2202126" />
+    <SolidColorBrush x:Key="FlyoutBorderThemeBrush" Color="#33FFFFFF" />
+    <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#F2202126" />
+    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#33FFFFFF" />
+    <SolidColorBrush x:Key="ToolTipBackground" Color="#F2202126" />
+    <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#33FFFFFF" />
+    <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="fonts:Inter#Inter, Segoe UI" />
+    </Style>
+
+    <!-- Fluent replaces a button's background on hover and press with its own greys; these
+         keep the brand blue and the raised charcoal instead. Later styles win in Avalonia,
+         so the generic rule comes first and the specific ones after it. -->
+    <!-- Hover and selection brighten the frost rather than switching to a grey, so they stay
+         glass over whatever is behind. -->
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#14FFFFFF" />
+    </Style>
+    <Style Selector="Button.nav:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#0FFFFFFF" />
+    </Style>
+    <Style Selector="Button.nav.selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background">
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+          <GradientStop Color="#24FFFFFF" Offset="0" />
+          <GradientStop Color="#0DFFFFFF" Offset="1" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="BorderBrush">
+        <LinearGradientBrush StartPoint="50%,0%" EndPoint="50%,100%">
+          <GradientStop Color="#40FFFFFF" Offset="0" />
+          <GradientStop Color="#0AFFFFFF" Offset="1" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="BoxShadow" Value="0 6 16 -8 #90000000" />
+    </Style>
+    <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background">
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+          <GradientStop Color="#2EFFFFFF" Offset="0" />
+          <GradientStop Color="#14FFFFFF" Offset="1" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="BorderBrush" Value="#40FFFFFF" />
+    </Style>
+    <!-- A Button has no shadow of its own; its template's presenter does. -->
+    <Style Selector="Button.primary /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BoxShadow" Value="0 8 20 -8 #803466E2" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background">
+        <LinearGradientBrush StartPoint="50%,0%" EndPoint="50%,100%">
+          <GradientStop Color="#6694F3" Offset="0" />
+          <GradientStop Color="#4273E6" Offset="1" />
+        </LinearGradientBrush>
+      </Setter>
+    </Style>
+    <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3466E2" />
+    </Style>
+    <Style Selector="Button.recording /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#EF4444" />
+    </Style>
+  </Application.Styles>
+
+  <!-- Closing the window keeps the app running here, so the shortcut still works while
+       you are in another app. -->
+  <TrayIcon.Icons>
+    <TrayIcons>
+      <!-- The app's own icon, and a single click opens or focuses the window. -->
+      <TrayIcon Icon="/Assets/app.ico"
+                ToolTipText="Talk-to-Text"
+                Clicked="OnTrayClicked">
+        <TrayIcon.Menu>
+          <NativeMenu>
+            <NativeMenuItem Header="Abrir Talk-to-Text" Click="OnTrayShow" />
+            <NativeMenuItem Header="Configurações" Click="OnTraySettings" />
+            <NativeMenuItemSeparator />
+            <NativeMenuItem Header="Sair" Click="OnTrayQuit" />
+          </NativeMenu>
+        </TrayIcon.Menu>
+      </TrayIcon>
+    </TrayIcons>
+  </TrayIcon.Icons>
+</Application>

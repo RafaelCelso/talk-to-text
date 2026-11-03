@@ -1,0 +1,142 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Plain net10.0, NOT net10.0-windows. Avalonia is cross-platform, and this is what
+         lets the UI be built and headless-tested on macOS — the reason Avalonia was chosen
+         over WPF. Windows-only code lives in TalkToText.Platform.Windows. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>TalkToText.App</RootNamespace>
+    <!-- The exe is TalkToText.exe; Task Manager and the uninstall list read the title. -->
+    <AssemblyName>TalkToText</AssemblyName>
+    <AssemblyTitle>Talk-to-Text</AssemblyTitle>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Packed from Resources/AppIcon.iconset (the macOS icon) at 16–256 px. Also used by
+         the installer, its Start Menu shortcut and the tray icon (same file). -->
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TalkToText.Core\TalkToText.Core.csproj" />
+    <ProjectReference Include="..\TalkToText.Speech\TalkToText.Speech.csproj" />
+  </ItemGroup>
+
+  <!-- The Windows platform layer targets net10.0-windows and is resolved by reflection at
+       run time (see PlatformFactory). ReferenceOutputAssembly=false means it is BUILT and
+       COPIED next to the app without being compiled against — which is what lets this
+       project stay on plain net10.0 and therefore build and headless-test on macOS.
+       Skipped entirely off Windows, where it cannot compile. -->
+  <ItemGroup Condition="'$([System.OperatingSystem]::IsWindows())' == 'true'">
+    <!-- SkipGetTargetFrameworkProperties is required: without it MSBuild refuses the
+         reference outright ("targets net10.0-windows, cannot be referenced by a project
+         that targets .NETCoreApp") before ReferenceOutputAssembly is ever considered. -->
+    <ProjectReference Include="..\TalkToText.Platform.Windows\TalkToText.Platform.Windows.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      UndefineProperties="TargetFramework"
+                      Private="false" />
+  </ItemGroup>
+
+  <!-- ReferenceOutputAssembly=false suppresses the copy too, so bring the assembly across
+       explicitly. PlatformFactory resolves it by name at startup. -->
+  <Target Name="PublishWindowsPlatformLayer"
+          BeforeTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true'">
+    <!-- RemoveProperties: publish passes RuntimeIdentifier and friends as global properties,
+         which would otherwise send this build to bin\...\win-x64\ while the items below read
+         bin\...\net10.0-windows\. CI only passed because an earlier Release build had left
+         a copy there. -->
+    <MSBuild Projects="..\TalkToText.Platform.Windows\TalkToText.Platform.Windows.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;IncludeNativeLibrariesForSelfExtract" />
+    <ItemGroup>
+      <_PlatformPublish Include="..\TalkToText.Platform.Windows\bin\$(Configuration)\net10.0-windows\TalkToText.Platform.Windows.dll" />
+      <_PlatformPublish Include="..\TalkToText.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <_PlatformPublish Include="..\TalkToText.Platform.Windows\bin\$(Configuration)\net10.0-windows\Interop.*.dll" />
+      <!-- Loose beside the exe rather than inside the bundle: PublishSingleFile only bundles
+           assemblies the compiler knows about, and this one is deliberately invisible to it.
+           The default load context probes AppContext.BaseDirectory, and Program.cs installs
+           a resolver as a belt-and-braces fallback. -->
+      <ResolvedFileToPublish Include="@(_PlatformPublish)">
+        <RelativePath>%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyWindowsPlatformLayer"
+          AfterTargets="Build"
+          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true'">
+    <ItemGroup>
+      <PlatformLayer Include="..\TalkToText.Platform.Windows\bin\$(Configuration)\net10.0-windows\TalkToText.Platform.Windows.dll" />
+      <PlatformLayer Include="..\TalkToText.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <PlatformLayer Include="..\TalkToText.Platform.Windows\bin\$(Configuration)\net10.0-windows\Interop.*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PlatformLayer)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          ContinueOnError="true" />
+  </Target>
+
+  <!-- llama.cpp for meeting summaries. LLamaSharp.Backend.Cpu ships its native libraries as
+       *content* under runtimes\<rid>\native\<avx|avx2|avx512|noavx>\, and LLamaSharp picks the
+       variant at run time by path. Two things go wrong in a single-file publish without this:
+       the win-x64 copies are swallowed into the bundle, where that path search cannot see them
+       (the published self-test failed with "native library cannot be correctly loaded"); and
+       the Speech project, built without a runtime identifier, drags in every other OS's
+       copies — 73 MB of Linux and macOS libraries. Keep win-x64 loose; drop the rest. -->
+  <Target Name="ShipLlamaNativesLoose" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_OtherOsRuntimes Include="@(ResolvedFileToPublish)"
+                        Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes\'))
+                                   And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes\win-x64\'))" />
+      <ResolvedFileToPublish Remove="@(_OtherOsRuntimes)" />
+
+      <!-- Out of the bundle: copied loose by the target below instead. -->
+      <_LlamaInBundle Include="@(ResolvedFileToPublish)"
+                      Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes\win-x64\'))" />
+      <ResolvedFileToPublish Remove="@(_LlamaInBundle)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Straight from the package rather than from the publish list: re-marking the list's
+       items ExcludeFromSingleFile left them nowhere at all — neither bundled nor copied. -->
+  <Target Name="CopyLlamaNativesBesideExe" AfterTargets="Publish">
+    <ItemGroup>
+      <_LlamaNatives Include="$(NuGetPackageRoot)llamasharp.backend.cpu\$(LlamaSharpVersion)\LLamaSharpRuntimes\win-x64\**\*.dll" />
+    </ItemGroup>
+    <Error Condition="'@(_LlamaNatives)' == ''"
+           Text="llama.cpp natives not found under $(NuGetPackageRoot)llamasharp.backend.cpu\$(LlamaSharpVersion)" />
+    <Copy SourceFiles="@(_LlamaNatives)"
+          DestinationFiles="@(_LlamaNatives->'$(PublishDir)runtimes\win-x64\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <!-- The graphics-card build. Its ggml.dll imports ggml-cpu.dll, which the package does not
+         ship: without it the Vulkan build never loads and everything quietly stays on the CPU.
+         The AVX2 one goes beside it; SummaryModel.ConfigureBackend asks for Vulkan only on
+         CPUs with AVX2. -->
+    <ItemGroup>
+      <_LlamaVulkan Include="$(NuGetPackageRoot)llamasharp.backend.vulkan.windows\$(LlamaSharpVersion)\LLamaSharpRuntimes\win-x64\native\vulkan\*.dll" />
+      <_LlamaVulkan Include="$(NuGetPackageRoot)llamasharp.backend.cpu\$(LlamaSharpVersion)\LLamaSharpRuntimes\win-x64\native\avx2\ggml-cpu.dll" />
+    </ItemGroup>
+    <Error Condition="'@(_LlamaVulkan)' == ''"
+           Text="llama.cpp Vulkan natives not found under $(NuGetPackageRoot)llamasharp.backend.vulkan.windows\$(LlamaSharpVersion)" />
+    <Copy SourceFiles="@(_LlamaVulkan)"
+          DestinationFolder="$(PublishDir)runtimes\win-x64\native\vulkan"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

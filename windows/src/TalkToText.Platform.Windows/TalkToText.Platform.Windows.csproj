@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The ONLY project in the repo allowed to call Win32. Keep it thin: anything with
+         logic in it is code CI cannot exercise. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>TalkToText.Platform.Windows</RootNamespace>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!-- Required. TalkToText.App loads this assembly by reflection and copies NAudio*.dll from
+         this project's bin folder — but a class library does not put its package
+         dependencies there by default. Without this the glob matches nothing, the app
+         starts fine, and the first key press fails to load NAudio.Wasapi. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" />
+    <PackageReference Include="Interop.UIAutomationClient" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TalkToText.Abstractions\TalkToText.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

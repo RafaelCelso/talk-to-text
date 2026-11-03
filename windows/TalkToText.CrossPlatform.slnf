@@ -1,0 +1,16 @@
+{
+  "solution": {
+    "path": "TalkToText.sln",
+    "projects": [
+      "src\\TalkToText.Abstractions\\TalkToText.Abstractions.csproj",
+      "src\\TalkToText.App\\TalkToText.App.csproj",
+      "src\\TalkToText.Core\\TalkToText.Core.csproj",
+      "src\\TalkToText.Dictionary\\TalkToText.Dictionary.csproj",
+      "src\\TalkToText.Speech\\TalkToText.Speech.csproj",
+      "src\\TalkToText.Testing\\TalkToText.Testing.csproj",
+      "tests\\TalkToText.App.Tests\\TalkToText.App.Tests.csproj",
+      "tests\\TalkToText.Core.Tests\\TalkToText.Core.Tests.csproj",
+      "tests\\TalkToText.Dictionary.Tests\\TalkToText.Dictionary.Tests.csproj"
+    ]
+  }
+}
