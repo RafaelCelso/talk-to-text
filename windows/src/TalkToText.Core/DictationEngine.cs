@@ -481,7 +481,10 @@ public sealed class DictationEngine : IAsyncDisposable
 
     private async Task ProcessAsync(List<float>? samples)
     {
-        Report($"captured {samples?.Count ?? 0} samples ({(samples?.Count ?? 0) / (double)AudioChunk.SampleRate:F1}s)");
+        // The peak tells a silent or wrong microphone (≈0) apart from speech the model missed.
+        var peak = 0f;
+        if (samples is not null) foreach (var s in samples) peak = Math.Max(peak, Math.Abs(s));
+        Report($"captured {samples?.Count ?? 0} samples ({(samples?.Count ?? 0) / (double)AudioChunk.SampleRate:F1}s, peak {peak:F3})");
         if (samples is null || samples.Count == 0) return;
 
         // Measured from key release, because that is the wait the user actually feels — and

@@ -109,9 +109,12 @@ public sealed class WasapiAudioCapture : IAudioCapture
         }
 
         var device = _deviceId is null
-            // Communications, not Console: this follows the device the user chose as their
-            // default *communication* device, which is what headset users expect.
-            ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications)
+            // Console, not Communications: Console is the "Input" device in Windows 11 Settings
+            // → Sound, the one the user picks and sees moving. The communications default is
+            // only set in the legacy control panel and can silently point elsewhere — on a
+            // Dell with Intel Smart Sound it was a second, dead endpoint and every dictation
+            // came back empty while Windows showed the microphone working.
+            ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console)
             : enumerator.GetDevice(_deviceId);
 
         // Bounded and drop-oldest so a slow consumer can never block the capture thread.
