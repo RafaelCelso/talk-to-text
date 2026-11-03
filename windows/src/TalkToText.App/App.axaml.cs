@@ -159,6 +159,7 @@ public partial class App : Application
 
         var overlay = new RecordingOverlay();
         engine.Completed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(overlay.NotifyCompleted);
+        engine.Failed += (_, message) => Avalonia.Threading.Dispatcher.UIThread.Post(() => overlay.NotifyFailed(message));
 
         var frame = new Avalonia.Threading.DispatcherTimer(Avalonia.Threading.DispatcherPriority.Render)
         {

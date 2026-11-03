@@ -98,6 +98,12 @@ public sealed class DictationEngine : IAsyncDisposable
     private Task<bool>? _loading;
     private CancellationTokenSource? _recording;
     private List<float>? _buffer;
+
+    // Guards _buffer. Cancellation is cooperative, so the capture loop can still be appending
+    // its last chunk while EndAsync takes the list: unguarded, ToArray raced the resize and
+    // threw, and the dictation was lost (CI, ~1 run in 20). Under this lock the list is
+    // detached before it is read, and a late chunk finds null and is dropped.
+    private readonly Lock _bufferLock = new();
     private DateTimeOffset _startedAt;
     private bool _startedByThisPress;
 
@@ -183,6 +189,19 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>Raised when a dictation completes and produced text.</summary>
     public event EventHandler<DictationResult>? Completed;
+
+    /// <summary>
+    /// Raised when a dictation or command ends without typing anything because something went
+    /// wrong, with a message for the user. Without it the pill just vanished: a Gemini model
+    /// that refused every command looked like the shortcut doing nothing.
+    /// </summary>
+    public event EventHandler<string>? Failed;
+
+    private void Fail(string log, string message)
+    {
+        Report(log);
+        Failed?.Invoke(this, message);
+    }
 
     /// <summary>Raised whenever <see cref="State"/> or <see cref="Level"/> changes.</summary>
     public event EventHandler? Changed;
@@ -350,7 +369,7 @@ public sealed class DictationEngine : IAsyncDisposable
             await _recording!.CancelAsync().ConfigureAwait(false);
             _recording.Dispose();
             _recording = null;
-            _buffer = null;
+            lock (_bufferLock) _buffer = null;
             Level = 0;
             SetState(DictationState.Idle);
             Report("cancelled: another key joined the shortcut");
@@ -381,7 +400,7 @@ public sealed class DictationEngine : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Report($"{name} failed: {ex}");
+            Fail($"{name} failed: {ex}", "Algo deu errado. Os detalhes estão no log.");
         }
     }
 
@@ -398,7 +417,7 @@ public sealed class DictationEngine : IAsyncDisposable
         {
             if (State != DictationState.Idle) return;
 
-            _buffer = [];
+            lock (_bufferLock) _buffer = [];
             _isCommand = command;
             _startedAt = _clock.Now;
             _recording = new CancellationTokenSource();
@@ -427,7 +446,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
                 // Copied, not referenced: capture implementations are entitled to reuse
                 // their buffer the moment this returns.
-                _buffer?.AddRange(chunk.Samples.Span);
+                lock (_bufferLock) _buffer?.AddRange(chunk.Samples.Span);
                 Level = chunk.Rms();
                 Changed?.Invoke(this, EventArgs.Empty);
             }
@@ -455,8 +474,11 @@ public sealed class DictationEngine : IAsyncDisposable
             if (State != DictationState.Recording) return;
 
             await _recording!.CancelAsync().ConfigureAwait(false);
-            samples = _buffer;
-            _buffer = null;
+            lock (_bufferLock)
+            {
+                samples = _buffer;
+                _buffer = null;
+            }
             Level = 0;
             Activity = new DictationActivity(DictationStep.Transcribing);
             SetState(DictationState.Transcribing);
@@ -481,21 +503,23 @@ public sealed class DictationEngine : IAsyncDisposable
 
     private async Task ProcessAsync(List<float>? samples)
     {
+        var snapshot = samples?.ToArray() ?? [];
+
         // The peak tells a silent or wrong microphone (≈0) apart from speech the model missed.
         var peak = 0f;
-        if (samples is not null) foreach (var s in samples) peak = Math.Max(peak, Math.Abs(s));
-        Report($"captured {samples?.Count ?? 0} samples ({(samples?.Count ?? 0) / (double)AudioChunk.SampleRate:F1}s, peak {peak:F3})");
-        if (samples is null || samples.Count == 0) return;
+        foreach (var s in snapshot) peak = Math.Max(peak, Math.Abs(s));
+        Report($"captured {snapshot.Length} samples ({snapshot.Length / (double)AudioChunk.SampleRate:F1}s, peak {peak:F3})");
+        if (snapshot.Length == 0) return;
 
         // Measured from key release, because that is the wait the user actually feels — and
         // it is the only figure on which a streaming and a batch engine compare honestly.
         var releasedAt = _clock.Now;
-        var audio = new ReadOnlyMemory<float>(samples.ToArray());
+        var audio = new ReadOnlyMemory<float>(snapshot);
 
         if (!_transcriber.IsReady) Show(new DictationActivity(DictationStep.LoadingSpeechModel));
         if (!await EnsureLoadedAsync().ConfigureAwait(false))
         {
-            Report("speech model is not loaded; nothing transcribed");
+            Fail("speech model is not loaded; nothing transcribed", "O modelo de voz não carregou.");
             return;
         }
 
@@ -578,7 +602,7 @@ public sealed class DictationEngine : IAsyncDisposable
     {
         if (Rewriter is null)
         {
-            Report("command mode needs the local AI, which is not set up");
+            Fail("command mode needs the local AI, which is not set up", "O modo comando precisa da IA, que não está configurada.");
             return;
         }
 
@@ -602,7 +626,9 @@ public sealed class DictationEngine : IAsyncDisposable
             }
             catch (Exception e) when (e is OperationCanceledException or InvalidOperationException)
             {
-                Report($"command failed: {e.Message}");
+                // The rewriter's messages are already written for the user ("Modelo não
+                // encontrado — escolha outro em Configurações: …").
+                Fail($"command failed: {e.Message}", e is OperationCanceledException ? "A IA demorou demais e o comando foi cancelado." : e.Message);
                 return;
             }
         }

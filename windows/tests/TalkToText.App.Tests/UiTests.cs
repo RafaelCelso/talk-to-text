@@ -607,6 +607,27 @@ public sealed class RecordingOverlayTests
     }
 
     [AvaloniaFact]
+    public void A_failure_says_why_instead_of_vanishing()
+    {
+        var overlay = new RecordingOverlay();
+
+        overlay.Apply(DictationState.Recording, 0.1, Start);
+        overlay.Apply(DictationState.Transcribing, 0, Start);
+        overlay.NotifyFailed("Modelo não encontrado — escolha outro em Configurações.");
+        overlay.Apply(DictationState.Idle, 0, Start);
+
+        overlay.Phase.ShouldBe(OverlayPhase.Failed);
+        overlay.MessageText.ShouldBe("Modelo não encontrado — escolha outro em Configurações.");
+
+        // The next recording starts clean.
+        overlay.Apply(DictationState.Recording, 0.1, Start);
+        overlay.NotifyCompleted();
+        overlay.Apply(DictationState.Transcribing, 0, Start);
+        overlay.Apply(DictationState.Idle, 0, Start);
+        overlay.Phase.ShouldBe(OverlayPhase.Done);
+    }
+
+    [AvaloniaFact]
     public void Follows_what_the_engine_is_doing_and_widens_for_a_long_message()
     {
         var overlay = new RecordingOverlay();

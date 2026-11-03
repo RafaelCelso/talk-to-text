@@ -29,6 +29,9 @@ public enum OverlayPhase
     /// <summary>Text delivered; shown briefly before leaving.</summary>
     Done,
 
+    /// <summary>Nothing was typed because something failed; the reason stays a few seconds.</summary>
+    Failed,
+
     /// <summary>Animating out.</summary>
     Leaving,
 }
@@ -75,6 +78,7 @@ public sealed class RecordingOverlay : Window
     private DateTime _loopStart;
     private bool _styled;
     private bool _completed;
+    private string? _failure;
 
     // Reveal animation: 0 = a dot, 1 = the full pill.
     private double _reveal;
@@ -177,7 +181,7 @@ public sealed class RecordingOverlay : Window
             },
         };
 
-        _leaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+        _leaveTimer = new DispatcherTimer { Interval = DoneShown };
         _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); Leave(); };
 
         _loopTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Tokens.Motion.Frame };
@@ -208,6 +212,15 @@ public sealed class RecordingOverlay : Window
     /// <summary>Text from the dictation that is finishing reached the user.</summary>
     public void NotifyCompleted() => _completed = true;
 
+    /// <summary>The dictation that is finishing failed; <paramref name="message"/> says why.</summary>
+    public void NotifyFailed(string message) => _failure = message;
+
+    /// <summary>How long a failure stays: long enough to read a sentence.</summary>
+    private static readonly TimeSpan FailureShown = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long "Texto inserido" stays.</summary>
+    private static readonly TimeSpan DoneShown = TimeSpan.FromMilliseconds(900);
+
     /// <summary>
     /// Moves the pill to match the engine. Called every frame; cheap when nothing changed.
     /// </summary>
@@ -232,10 +245,18 @@ public sealed class RecordingOverlay : Window
                 break;
 
             default:
-                if (Phase is OverlayPhase.Transcribing && _completed)
+                if (Phase is OverlayPhase.Recording or OverlayPhase.Transcribing && _failure is { } failure)
+                {
+                    Phase = OverlayPhase.Failed;
+                    ShowMessage(failure, spinner: false, failed: true);
+                    _leaveTimer.Interval = FailureShown;
+                    _leaveTimer.Start();
+                }
+                else if (Phase is OverlayPhase.Transcribing && _completed)
                 {
                     Phase = OverlayPhase.Done;
                     ShowMessage("Texto inserido", spinner: false);
+                    _leaveTimer.Interval = DoneShown;
                     _leaveTimer.Start();
                 }
                 else if (Phase is OverlayPhase.Recording or OverlayPhase.Transcribing)
@@ -252,6 +273,7 @@ public sealed class RecordingOverlay : Window
     {
         _leaveTimer.Stop();
         _completed = false;
+        _failure = null;
         Phase = OverlayPhase.Recording;
 
         _waveform.Clear();
@@ -287,13 +309,13 @@ public sealed class RecordingOverlay : Window
         AnimateRevealTo(1);
     }
 
-    private void ShowMessage(string text, bool spinner)
+    private void ShowMessage(string text, bool spinner, bool failed = false)
     {
         if (spinner) Phase = OverlayPhase.Transcribing;
 
         _messageText.Text = text;
-        _messageIcon.Content = spinner
-            ? _spinner
+        _messageIcon.Content = spinner ? _spinner
+            : failed ? Ui.Dot(Tokens.Colors.Warning, 9)
             : Icons.Make(Icons.Check, new SolidColorBrush(Tokens.Colors.Success), 14);
 
         _live.Opacity = 0;

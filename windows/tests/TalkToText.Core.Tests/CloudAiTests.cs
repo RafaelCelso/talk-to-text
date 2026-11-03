@@ -24,7 +24,9 @@ public sealed class CloudAiTests
               {"id":"o1-pro","created":600},
               {"id":"gpt-image-1","created":700},
               {"id":"gpt-3.5-turbo-instruct","created":10},
-              {"id":"omni-moderation-latest","created":800}
+              {"id":"omni-moderation-latest","created":800},
+              {"id":"computer-use-preview","created":900},
+              {"id":"gpt-5-codex","created":950}
             ]}
             """;
 
@@ -55,7 +57,8 @@ public sealed class CloudAiTests
               {"name":"models/gemini-2.0-flash","displayName":"Gemini 2.0 Flash","supportedGenerationMethods":["generateContent","countTokens"]},
               {"name":"models/text-embedding-004","displayName":"Embedding","supportedGenerationMethods":["embedContent"]},
               {"name":"models/gemini-2.5-flash-preview-tts","displayName":"TTS","supportedGenerationMethods":["generateContent"]},
-              {"name":"models/gemma-3-4b-it","displayName":"Gemma","supportedGenerationMethods":["generateContent"]}
+              {"name":"models/gemma-3-4b-it","displayName":"Gemma","supportedGenerationMethods":["generateContent"]},
+              {"name":"models/gemini-3.5-transcribe","displayName":"Transcribe","supportedGenerationMethods":["generateContent"]}
             ]}
             """;
 
@@ -69,11 +72,39 @@ public sealed class CloudAiTests
             {"data":[
               {"id":"mistral-small-latest","created":5,"capabilities":{"completion_chat":true}},
               {"id":"mistral-embed","created":4,"capabilities":{"completion_chat":false}},
-              {"id":"mistral-small-latest","created":5,"capabilities":{"completion_chat":true}}
+              {"id":"mistral-small-latest","created":5,"capabilities":{"completion_chat":true}},
+              {"id":"open-mistral-7b","created":3,"capabilities":{"completion_chat":true},"deprecation":"2025-03-30T12:00:00Z"},
+              {"id":"mistral-large-latest","created":2,"capabilities":{"completion_chat":true},"deprecation":"2999-01-01T00:00:00Z"},
+              {"id":"voxtral-mini-transcribe-2507","created":1,"capabilities":{"completion_chat":true}}
             ]}
             """;
 
-        CloudAi.ParseModels(AiProvider.Mistral, json).Select(m => m.Id).ShouldBe(["mistral-small-latest"]);
+        // A deprecation date in the past means the model no longer answers; one in the future
+        // is only a notice.
+        CloudAi.ParseModels(AiProvider.Mistral, json).Select(m => m.Id).ShouldBe(["mistral-small-latest", "mistral-large-latest"]);
+    }
+
+    [Fact]
+    public void Grok_offers_only_text_models()
+    {
+        const string json = """
+            {"data":[
+              {"id":"grok-4","created":3},
+              {"id":"grok-2-image-1212","created":2},
+              {"id":"grok-imagine-video","created":4},
+              {"id":"grok-3-mini","created":1}
+            ]}
+            """;
+
+        CloudAi.ParseModels(AiProvider.Grok, json).Select(m => m.Id).ShouldBe(["grok-4", "grok-3-mini"]);
+    }
+
+    [Fact]
+    public void DeepSeek_offers_its_chat_models()
+    {
+        const string json = """{"object":"list","data":[{"id":"deepseek-chat","object":"model"},{"id":"deepseek-reasoner","object":"model"}]}""";
+
+        CloudAi.ParseModels(AiProvider.DeepSeek, json).Select(m => m.Id).ShouldBe(["deepseek-chat", "deepseek-reasoner"]);
     }
 
     [Theory]
@@ -105,9 +136,33 @@ public sealed class CloudAiTests
     }
 
     [Fact]
-    public void Other_refusals_keep_the_providers_reason() =>
+    public void Other_refusals_say_what_to_do_then_keep_the_providers_reason() =>
         CloudAi.Refusal(HttpStatusCode.TooManyRequests, """{"error":{"message":"You exceeded your current quota"}}""").Message
-            .ShouldBe("Limite de uso atingido ou créditos da conta esgotados: You exceeded your current quota");
+            .ShouldBe("A conta do provedor está sem créditos ou passou do limite — confira o saldo no site dele. You exceeded your current quota");
+
+    /// <summary>The refusals each provider actually sends, and what the user is told.</summary>
+    [Theory]
+    // No credits: xAI says it with 403 and Anthropic with 400 — neither is a bad key.
+    [InlineData(HttpStatusCode.Forbidden, """{"code":"forbidden","error":"Your team doesn't have any credits yet."}""", "A conta do provedor está sem créditos")]
+    [InlineData(HttpStatusCode.BadRequest, """{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}""", "A conta do provedor está sem créditos")]
+    [InlineData(HttpStatusCode.PaymentRequired, """{"error":{"message":"Insufficient Balance","type":"unknown_error"}}""", "A conta do provedor está sem créditos")]
+    // A model that is gone or unknown: Mistral and DeepSeek answer 400, Gemini 400 or 404.
+    [InlineData(HttpStatusCode.NotFound, """{"error":{"message":"The model `gpt-9` does not exist","code":"model_not_found"}}""", "Este modelo não está disponível")]
+    [InlineData(HttpStatusCode.BadRequest, """{"object":"error","message":"Invalid model: mistral-tiny","type":"invalid_model"}""", "Este modelo não está disponível")]
+    [InlineData(HttpStatusCode.BadRequest, """{"error":{"message":"Model Not Exist","type":"invalid_request_error"}}""", "Este modelo não está disponível")]
+    [InlineData(HttpStatusCode.NotFound, """{"error":{"code":404,"message":"This model models/gemini-2.5-flash is no longer available to new users.","status":"NOT_FOUND"}}""", "Este modelo não está disponível")]
+    // A model that cannot take this request.
+    [InlineData(HttpStatusCode.BadRequest, """{"error":{"code":400,"message":"Developer instruction is not enabled for this model","status":"INVALID_ARGUMENT"}}""", "Este modelo não aceita este tipo de pedido")]
+    [InlineData(HttpStatusCode.BadRequest, """{"error":{"message":"This model is only supported in v1/responses and not in v1/chat/completions."}}""", "Este modelo não aceita este tipo de pedido")]
+    // Everything else that happens.
+    [InlineData(HttpStatusCode.BadRequest, """{"error":{"code":400,"message":"User location is not supported for the API use.","status":"FAILED_PRECONDITION"}}""", "O provedor não atende a sua região")]
+    [InlineData(HttpStatusCode.Forbidden, """{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported"}}""", "O provedor não atende a sua região")]
+    [InlineData(HttpStatusCode.BadRequest, """{"error":{"message":"This model's maximum context length is 128000 tokens.","code":"context_length_exceeded"}}""", "O texto é longo demais")]
+    [InlineData((HttpStatusCode)529, """{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}""", "O provedor está sobrecarregado")]
+    [InlineData(HttpStatusCode.InternalServerError, "oops", "O provedor teve um erro interno")]
+    [InlineData(HttpStatusCode.TooManyRequests, """{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}""", "Limite de uso atingido")]
+    public void Each_refusal_says_what_happened(HttpStatusCode status, string body, string start) =>
+        CloudAi.Refusal(status, body).Message.ShouldStartWith(start);
 
     [Fact]
     public void OpenAI_is_asked_with_max_completion_tokens_and_the_others_with_max_tokens()

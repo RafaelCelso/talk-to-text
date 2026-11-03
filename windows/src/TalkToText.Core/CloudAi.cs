@@ -133,7 +133,7 @@ public static class CloudAi
                 .Select(m => new CloudModelInfo(
                     (Text(m, "name") ?? string.Empty).Replace("models/", string.Empty, StringComparison.Ordinal),
                     Text(m, "displayName") ?? string.Empty))
-                .Where(m => m.Id.StartsWith("gemini", StringComparison.Ordinal) && !Excluded(m.Id, "embedding", "tts", "image", "live", "audio", "robotics", "computer-use"))
+                .Where(m => m.Id.StartsWith("gemini", StringComparison.Ordinal) && !Excluded(m.Id, "embedding", "tts", "image", "live", "audio", "robotics", "computer-use", "transcribe"))
                 .Select(m => m with { Name = m.Name.Length == 0 ? m.Id : $"{m.Name} ({m.Id})" })
                 .ToList();
         }
@@ -154,19 +154,40 @@ public static class CloudAi
             : models.OrderByDescending(m => m.Created).ThenBy(m => m.Model.Id, StringComparer.Ordinal).Select(m => m.Model).ToList();
     }
 
+    /// <summary>
+    /// Whether the user may pick <paramref name="id"/>: a model that answers text through the
+    /// request this app sends. Anything else is refused only when used — a Gemini transcription
+    /// model in the list looked like a working choice and every command then failed.
+    /// </summary>
     private static bool IsChatModel(AiProvider provider, string id, JsonElement model) => provider switch
     {
-        // /v1/models also lists speech, images, embeddings and models only the Responses API serves.
+        // /v1/models also lists speech, images, embeddings, moderation and models only the
+        // Responses API serves (pro, codex, deep research, computer use).
         AiProvider.OpenAI => (id.StartsWith("gpt-", StringComparison.Ordinal) || id.StartsWith("chatgpt-", StringComparison.Ordinal)
                               || (id.Length > 1 && id[0] == 'o' && char.IsAsciiDigit(id[1])))
-                             && !Excluded(id, "audio", "realtime", "tts", "transcribe", "image", "search", "embedding", "instruct", "codex", "deep-research", "diarize")
+                             && !Excluded(id, "audio", "realtime", "tts", "transcribe", "image", "search", "embedding", "instruct", "codex",
+                                          "deep-research", "diarize", "computer-use", "moderation")
                              && !id.EndsWith("-pro", StringComparison.Ordinal) && !id.Contains("-pro-", StringComparison.Ordinal),
+
+        // Mistral says what each model can do, and when a model is retired.
         AiProvider.Mistral => (!model.TryGetProperty("capabilities", out var capabilities)
                                || !capabilities.TryGetProperty("completion_chat", out var chat) || chat.ValueKind == JsonValueKind.True)
+                              && !Retired(model)
                               && !Excluded(id, "embed", "ocr", "moderation", "transcribe"),
-        AiProvider.Grok => !Excluded(id, "image", "imagine", "video"),
+
+        AiProvider.Grok => id.StartsWith("grok", StringComparison.Ordinal)
+                           && !Excluded(id, "image", "imagine", "video", "embed", "tts", "voice", "realtime", "audio"),
+
+        // Anthropic lists only its Claude models; DeepSeek only chat and reasoner.
+        AiProvider.DeepSeek => id.StartsWith("deepseek", StringComparison.Ordinal),
         _ => true,
     };
+
+    /// <summary>Mistral's <c>deprecation</c>: the date a model stops answering, null while it is current.</summary>
+    private static bool Retired(JsonElement model) =>
+        Text(model, "deprecation") is { } date
+        && DateTimeOffset.TryParse(date, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var when)
+        && when <= DateTimeOffset.UtcNow;
 
     private static bool Excluded(string id, params string[] words) => words.Any(w => id.Contains(w, StringComparison.OrdinalIgnoreCase));
 
@@ -224,25 +245,64 @@ public static class CloudAi
     }
 
     /// <summary>
-    /// What a refusal means for the user. Gemini answers a bad key with 400 rather than 401,
-    /// so that is reported as 401 too.
+    /// What a refusal means for the user, said first so it survives being cut short in the
+    /// recording pill; the provider's own words follow. The status alone misleads: Gemini
+    /// answers a bad key with 400, xAI an account without credits with 403, Anthropic one
+    /// with 400, and Mistral and DeepSeek an unknown model with 400.
     /// </summary>
     public static (string Message, HttpStatusCode Status) Refusal(HttpStatusCode status, string body)
     {
         var detail = ErrorDetail(body);
-        var badKey = status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-                     || (status == HttpStatusCode.BadRequest && (body.Contains("API_KEY_INVALID", StringComparison.Ordinal)
-                                                                 || body.Contains("API key not valid", StringComparison.OrdinalIgnoreCase)));
-        if (badKey) return ("Chave de API inválida ou sem permissão.", HttpStatusCode.Unauthorized);
+        bool Says(params string[] words) => words.Any(w => body.Contains(w, StringComparison.OrdinalIgnoreCase));
 
-        var message = status switch
+        // Before the key check: these arrive as 401/403 on some providers.
+        if (Says("credit balance", "insufficient_quota", "insufficient balance", "doesn't have any credits", "does not have any credits",
+                 "exceeded your current quota", "billing"))
         {
-            HttpStatusCode.TooManyRequests => "Limite de uso atingido ou créditos da conta esgotados",
-            HttpStatusCode.PaymentRequired => "A conta do provedor está sem créditos",
-            HttpStatusCode.NotFound => "Modelo não encontrado — escolha outro em Configurações",
+            return With("A conta do provedor está sem créditos ou passou do limite — confira o saldo no site dele", status);
+        }
+
+        if (Says("unsupported_country", "location is not supported", "not available in your country", "region is not supported"))
+        {
+            return With("O provedor não atende a sua região", status);
+        }
+
+        if (status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+            || Says("API_KEY_INVALID", "API key not valid", "API key expired", "invalid_api_key", "Incorrect API key", "authentication_error"))
+        {
+            // Also shown beside the key field in Settings, so it does not send the user there.
+            return ("Chave de API inválida ou sem permissão.", HttpStatusCode.Unauthorized);
+        }
+
+        if (status == HttpStatusCode.NotFound
+            || Says("model_not_found", "does not exist", "Model Not Exist", "Invalid model", "no longer available", "is not found",
+                    "not_found_error"))
+        {
+            return With("Este modelo não está disponível para a sua chave — escolha outro em Configurações", HttpStatusCode.NotFound);
+        }
+
+        if (Says("not enabled for this model", "not supported", "unsupported", "only supported in v1/responses", "not a chat model"))
+        {
+            return With("Este modelo não aceita este tipo de pedido — escolha outro em Configurações", status);
+        }
+
+        if (Says("context_length_exceeded", "maximum context length", "prompt is too long", "too many tokens", "input is too long"))
+        {
+            return With("O texto é longo demais para este modelo", status);
+        }
+
+        var message = (int)status switch
+        {
+            429 => "Limite de uso atingido — espere um pouco ou confira os créditos da conta",
+            402 => "A conta do provedor está sem créditos — confira o saldo no site dele",
+            529 or 503 => "O provedor está sobrecarregado agora — tente de novo em instantes",
+            >= 500 => "O provedor teve um erro interno — tente de novo em instantes",
             _ => $"O provedor recusou o pedido ({(int)status})",
         };
-        return (detail is null ? message + "." : $"{message}: {detail}", status);
+        return With(message, status);
+
+        (string, HttpStatusCode) With(string message, HttpStatusCode code) =>
+            (detail is null ? message + "." : $"{message}. {detail}", code);
     }
 
     private static string? ErrorDetail(string body)

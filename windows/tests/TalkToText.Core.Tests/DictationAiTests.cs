@@ -144,6 +144,25 @@ public sealed class DictationAiTests
     }
 
     [Fact]
+    public async Task A_refused_command_tells_the_user_why()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        await using var engine = Build(hotkey, "traduza para o inglês", injector);
+        const string refusal = "O provedor recusou o pedido (400): Developer instruction is not enabled for this model";
+        engine.Rewriter = new FakeRewriter { Command = (_, _) => throw new InvalidOperationException(refusal) };
+        engine.SelectionReader = new FakeSelection("Olá, tudo bem?");
+        engine.CommandShortcut = new Shortcut(Keys.Shift, Keys.Windows);
+        string? failure = null;
+        engine.Failed += (_, message) => failure = message;
+
+        await SayAsync(hotkey, engine, ShiftWin);
+
+        injector.Injected.ShouldBeEmpty();
+        failure.ShouldBe(refusal);
+    }
+
+    [Fact]
     public async Task The_command_shortcut_does_nothing_while_command_mode_is_off()
     {
         var hotkey = new FakeHotkeySource();
