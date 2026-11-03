@@ -90,6 +90,15 @@ public partial class App : Application
             StartLiveTranscript(_main, _composition, _meetings);
             OfferOnboarding(_main, _composition);
 
+            // No speech model at all — the installer's download failed or was skipped — and the
+            // app cannot transcribe: fetch it now, with progress on the Home page, rather than
+            // leave the user to find a way. An English-only v2 still works, so v3 is offered there
+            // instead of forced.
+            if (_composition.IsPlatformAvailable && !_composition.IsModelInstalled)
+            {
+                _ = SpeechModelDownload.StartAsync(_composition);
+            }
+
             _meetings.MeetingDetected += (_, meeting) => PromptForMeeting(meeting);
             _meetings.Start();
 

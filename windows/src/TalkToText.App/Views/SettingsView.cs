@@ -268,11 +268,28 @@ public sealed class SettingsView : UserControl
             },
         };
 
+        // The Portuguese-capable v3 is missing — nothing at all, or only the English-only v2.
+        // The same download as the Home page's, so starting it here shows there too.
+        if (_composition is { IsPlatformAvailable: true, NeedsSpeechModel: true } composition)
+        {
+            var download = Ui.Secondary("Baixar", Icons.Download);
+            download.IsEnabled = !SpeechModelDownload.IsRunning;
+            download.Click += async (_, _) =>
+            {
+                download.IsEnabled = false;
+                await SpeechModelDownload.StartAsync(composition).ConfigureAwait(true);
+                download.IsEnabled = composition.NeedsSpeechModel;
+            };
+            status.Children.Add(download);
+        }
+
         return Ui.SettingRow(
             "Modelo de voz — Parakeet",
-            found
+            found && !located!.EndsWith("parakeet-v2", StringComparison.OrdinalIgnoreCase)
                 ? located
-                : "Sem modelo o Talk-to-Text não transcreve. Reinstale o aplicativo para baixá-lo.",
+                : found
+                    ? "O modelo instalado (v2) só reconhece inglês. Baixe o Parakeet v3 para ditar em português."
+                    : "Sem modelo o Talk-to-Text não transcreve. Baixe-o aqui ou pela tela Início (670 MB, uma única vez).",
             status);
     }
 

@@ -87,10 +87,27 @@ public sealed class Composition : IAsyncDisposable
     public bool IsPlatformAvailable { get; }
 
     /// <summary>Whether the speech model the engine uses is present on disk.</summary>
-    /// <remarks>Resolved exactly as <see cref="Create"/> resolves it, settings first.</remarks>
-    public bool IsModelInstalled =>
-        (Settings.Data.ModelDirectory ?? ParakeetTranscriber.Locate()) is { } directory
-        && ParakeetTranscriber.IsComplete(directory);
+    /// <remarks>Resolved exactly as the transcriber resolves it, settings first.</remarks>
+    public bool IsModelInstalled => ResolveModel(Settings) is { } directory && ParakeetTranscriber.IsComplete(directory);
+
+    /// <summary>
+    /// Whether the Portuguese-capable model still has to be downloaded: no folder chosen in
+    /// settings, and no complete Parakeet v3. True also when only the English-only v2 is there.
+    /// </summary>
+    public bool NeedsSpeechModel => Settings.Data.ModelDirectory is null && !SpeechModel.IsInstalled();
+
+    /// <summary>
+    /// Makes dictation, meetings and audio files use a model downloaded while the app runs,
+    /// from their next use on.
+    /// </summary>
+    public async Task ReloadSpeechModelAsync()
+    {
+        if (Transcriber is SpeechModelTranscriber transcriber) await transcriber.ResetAsync().ConfigureAwait(false);
+        DiagnosticLog.Write($"speech model reloaded: {ResolveModel(Settings) ?? "none found"}");
+    }
+
+    /// <summary>The model folder to use: the one chosen in settings, else the best one found.</summary>
+    private static string? ResolveModel(AppSettings settings) => settings.Data.ModelDirectory ?? ParakeetTranscriber.Locate();
 
     /// <summary>Builds the object graph.</summary>
     public static Composition Create()
@@ -110,13 +127,9 @@ public sealed class Composition : IAsyncDisposable
 
         if (available)
         {
-            var modelDirectory = settings.Data.ModelDirectory ?? ParakeetTranscriber.Locate();
+            DiagnosticLog.Write($"started; model: {ResolveModel(settings) ?? "none found"}");
 
-            DiagnosticLog.Write($"started; model: {modelDirectory ?? "none found"}");
-
-            transcriber = modelDirectory is not null
-                ? new ParakeetTranscriber(modelDirectory)
-                : new UnavailableTranscriber();
+            transcriber = new SpeechModelTranscriber(() => ResolveModel(settings));
 
             engine = new DictationEngine(
                 capture!, hotkey!, transcriber, injector!,
@@ -219,22 +232,71 @@ internal static class DiagnosticLog
 }
 
 /// <summary>
-/// A transcriber that reports the model is missing rather than throwing.
+/// Parakeet, with the model folder looked up each time it loads.
 /// </summary>
 /// <remarks>
-/// A fresh Windows install has no model, and that has to be a readable message in Settings
-/// rather than a crash on first press.
+/// A fresh install may have no model yet, and the app downloads it while running. Without a
+/// model this reports not-ready rather than throwing — a readable message, not a crash on first
+/// press — and once <see cref="ResetAsync"/> is called after a download, the next use loads the
+/// new model: v3 replaces an English-only v2 without a restart.
 /// </remarks>
-internal sealed class UnavailableTranscriber : ITranscriber
+internal sealed class SpeechModelTranscriber(Func<string?> resolve) : ITranscriber
 {
-    public bool IsReady => false;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private ParakeetTranscriber? _inner;
+    private string? _directory;
 
-    public ValueTask<bool> LoadAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    public bool IsReady => _inner?.IsReady ?? false;
+
+    public async ValueTask<bool> LoadAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (resolve() is not { } directory) return false;
+
+            if (_inner is null || directory != _directory)
+            {
+                if (_inner is not null) await _inner.DisposeAsync().ConfigureAwait(false);
+                _inner = new ParakeetTranscriber(directory);
+                _directory = directory;
+            }
+
+            return await _inner.LoadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     public ValueTask<string> TranscribeAsync(
         ReadOnlyMemory<float> samples,
         IReadOnlyList<string> biasPhrases,
-        CancellationToken cancellationToken) => ValueTask.FromResult(string.Empty);
+        CancellationToken cancellationToken) =>
+        _inner is { } inner
+            ? inner.TranscribeAsync(samples, biasPhrases, cancellationToken)
+            : ValueTask.FromResult(string.Empty);
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    /// <summary>Unloads the model, so the next use looks for the best one again.</summary>
+    public async Task ResetAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_inner is not null) await _inner.DisposeAsync().ConfigureAwait(false);
+            _inner = null;
+            _directory = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_inner is not null) await _inner.DisposeAsync().ConfigureAwait(false);
+        _gate.Dispose();
+    }
 }

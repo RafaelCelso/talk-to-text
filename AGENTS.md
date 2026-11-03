@@ -160,6 +160,16 @@ borda iluminada no topo (`GlassRim`), sobre uma janela com desfoque acrílico. U
 não os cinzas antigos (`Raised`, `Card`), em qualquer card, linha ou botão novo. Os raios
 continuam os do OpenWhispr (um teste os fixa).
 
+**O modelo de voz é sempre o Parakeet v3** (`Speech/SpeechModel.cs`), o único que entende
+português. `ParakeetTranscriber.DefaultSearchPaths` procura a v3 antes da v2 — a ordem inversa
+fez uma máquina com as duas ditar português pelo modelo só de inglês. O instalador baixa a v3;
+se falhar, o app baixa sozinho ao abrir (`SpeechModelDownload`, progresso no `SpeechModelBanner`
+da tela Início, botão "Baixar" em Configurações). Com só a v2 instalada, a v3 é oferecida, não
+forçada. O transcritor (`SpeechModelTranscriber` em `Composition.cs`) procura a pasta a cada
+carregamento, `Composition.ReloadSpeechModelAsync` o descarrega depois de um download, e o
+`DictationEngine` recarrega um transcritor que não está pronto — o modelo novo vale sem reiniciar
+o app. **Nunca mande o usuário para o terminal**: foi assim que alguém acabou com a v2.
+
 **`SettingsData` usa setters, não `init`.** O serializador JSON gerado por código grava
 `default` em toda propriedade `init` ausente, e um arquivo de configurações antigo chegou a
 carregar sem atalho nenhum.

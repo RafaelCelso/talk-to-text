@@ -5,8 +5,10 @@ o sistema, gerencia seus próprios modelos e não precisa de download. Não exis
 Windows — então o Parakeet não é o upgrade opcional que é no macOS, é o *único* motor. O app não
 consegue transcrever até esses arquivos estarem no disco.
 
-> **O instalador já faz isso** (baixa a v3 com verificação SHA-256). Esta página serve para
-> instalar o modelo à mão, conferir uma instalação ou entender o que está em jogo.
+> **Ninguém precisa fazer isto à mão.** O instalador baixa a v3 (com verificação SHA-256) e,
+> se esse download falhar, o próprio app baixa o modelo ao abrir, com barra de progresso na tela
+> Início — ou pelo botão "Baixar" em Configurações. Esta página serve para conferir uma
+> instalação, instalar numa máquina sem internet ou entender o que está em jogo.
 
 Esta página foi escrita para ser seguida por uma pessoa **ou entregue tal como está a um agente
 de código**.
@@ -33,22 +35,22 @@ Duas variantes. Escolha uma:
 | `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8` | **Só inglês** | 1025 entradas |
 | `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` | **25 idiomas** (inclui português) | 8193 entradas |
 
-**Para português, use a v3** — é a que o instalador baixa. A v2 só serve se você dita apenas em
-inglês. Mesmo tamanho de encoder, mesma velocidade; a v3 simplesmente tem um vocabulário maior.
+**Use a v3** — é a que o instalador e o app baixam, e a única que entende português. A v2 só
+serve se você dita apenas em inglês; com as duas no disco o app usa a v3. Mesmo tamanho de
+encoder, mesma velocidade; a v3 simplesmente tem um vocabulário maior.
 
-Os exemplos abaixo usam a v2; para a **v3**, troque `parakeet-v2` → `parakeet-v3` e
-`...-v2-int8` → `...-v3-int8`.
+Os exemplos abaixo usam a v3.
 
 ---
 
 ## Onde os arquivos ficam
 
 ```
-%LOCALAPPDATA%\TalkToText\models\parakeet-v2\
+%LOCALAPPDATA%\TalkToText\models\parakeet-v3\
     encoder.int8.onnx     ~652 MB
-    decoder.int8.onnx     ~7 MB
-    joiner.int8.onnx      ~1,7 MB
-    tokens.txt            ~9 KB
+    decoder.int8.onnx     ~12 MB
+    joiner.int8.onnx      ~6,4 MB
+    tokens.txt            ~94 KB
 ```
 
 O app procura aqui primeiro, depois ao lado do executável (`AppContext.BaseDirectory\models\`).
@@ -65,8 +67,8 @@ Configurações → Modelo mostra o caminho encontrado e se os arquivos estão l
 Nada para instalar. Cole isto no PowerShell:
 
 ```powershell
-$dir = "$env:LOCALAPPDATA\TalkToText\models\parakeet-v2"
-$base = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/resolve/main"
+$dir = "$env:LOCALAPPDATA\TalkToText\models\parakeet-v3"
+$base = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/main"
 
 New-Item -ItemType Directory -Force $dir | Out-Null
 
@@ -87,10 +89,10 @@ Saída esperada:
 ```
 Name                MB
 ----                --
-decoder.int8.onnx   6.9
+decoder.int8.onnx   11.3
 encoder.int8.onnx   622.0
-joiner.int8.onnx    1.7
-tokens.txt          0.0
+joiner.int8.onnx    6.1
+tokens.txt          0.1
 ```
 
 ---
@@ -102,9 +104,9 @@ O comando é **`hf`**. O `huggingface-cli` está obsoleto.
 ```powershell
 pip install -U "huggingface_hub[cli]"
 
-hf download csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 `
+hf download csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8 `
   --include "encoder.int8.onnx" "decoder.int8.onnx" "joiner.int8.onnx" "tokens.txt" `
-  --local-dir "$env:LOCALAPPDATA\TalkToText\models\parakeet-v2"
+  --local-dir "$env:LOCALAPPDATA\TalkToText\models\parakeet-v3"
 ```
 
 **Não é preciso token do Hugging Face.** Esses repositórios são públicos. Se pedir login, há um
@@ -116,7 +118,7 @@ erro de digitação no nome do repositório.
 
 ```powershell
 git lfs install
-git clone https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+git clone https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
 ```
 
 Clona arquivos extras que você não precisa (pesos fp32, áudios de teste) — cerca de 3 GB. Tudo
@@ -127,18 +129,18 @@ bem se você já tem `git-lfs`; senão, use a Opção A.
 ## Conferindo se deu certo
 
 ```powershell
-$dir = "$env:LOCALAPPDATA\TalkToText\models\parakeet-v2"
+$dir = "$env:LOCALAPPDATA\TalkToText\models\parakeet-v3"
 $expect = @{
-  "encoder.int8.onnx" = 652183000    # ±1 MB; o tamanho exato difere um pouco entre v2 e v3
-  "decoder.int8.onnx" = 7257753
-  "joiner.int8.onnx"  = 1739080
-  "tokens.txt"        = 9384
+  "encoder.int8.onnx" = 652184281
+  "decoder.int8.onnx" = 11845275
+  "joiner.int8.onnx"  = 6355277
+  "tokens.txt"        = 93939
 }
 foreach ($k in $expect.Keys) {
     $p = Join-Path $dir $k
     if (-not (Test-Path $p)) { Write-Host "FALTANDO  $k" -ForegroundColor Red; continue }
     $got = (Get-Item $p).Length
-    $ok = [math]::Abs($got - $expect[$k]) -lt 2MB
+    $ok = $got -eq $expect[$k]
     Write-Host ("{0,-20} {1,12:N0} bytes  {2}" -f $k, $got, $(if($ok){"OK"}else{"TAMANHO DIFERENTE"}))
 }
 ```
@@ -214,8 +216,9 @@ fica muito mais lenta.
 
 | Sintoma | Causa |
 |---|---|
-| "Modelo não encontrado" | Arquivos na pasta errada. Configurações → Modelo mostra o caminho exato verificado. |
-| Erro de protobuf / parse ao carregar | Download truncado. Rode de novo a conferência de tamanhos acima. |
+| "Modelo não instalado" | Use o botão "Baixar modelo de voz" na tela Início. Numa instalação manual, Configurações → Modelo mostra o caminho exato verificado. |
+| Português sai como texto sem sentido | O app está usando a v2, só em inglês. A tela Início oferece baixar a v3. |
+| Erro de protobuf / parse ao carregar | Download truncado. Rode de novo a conferência de tamanhos acima, ou apague a pasta e baixe pelo app. |
 | Carrega, mas toda transcrição sai vazia | O Windows está bloqueando o microfone. Configurações → Privacidade e segurança → Microfone → **Permitir que aplicativos da área de trabalho acessem o microfone**. Com isso desligado o WASAPI devolve *silêncio*, não um erro. |
 | Primeira transcrição muito lenta | Carregamento do modelo, ~2 s. Só na primeira fala depois de abrir o app. |
 | Sempre lento | Você pode estar rodando o build x64 numa máquina ARM64. |

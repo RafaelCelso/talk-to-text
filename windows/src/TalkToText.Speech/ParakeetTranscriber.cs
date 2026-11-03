@@ -61,10 +61,10 @@ public sealed class ParakeetTranscriber : ITranscriber
     /// and update the model itself even when installed under Program Files.
     /// </para>
     /// <para>
-    /// v2 before v3 within each location: v2 is the English default, and a machine that has
-    /// both was set up deliberately. v3 is searched at all because the installer puts v3 —
-    /// it covers 25 languages including English — and a fresh install has no settings file
-    /// to point at it.
+    /// v3 before v2 within each location: v3 covers 25 languages, Portuguese among them, and
+    /// is what the installer and the app download. v2 only knows English — with both on disk,
+    /// picking v2 turned every Portuguese dictation into nonsense. It is still searched, as a
+    /// fallback for a machine set up by hand for English.
     /// </para>
     /// </remarks>
     public static IEnumerable<string> DefaultSearchPaths()
@@ -73,14 +73,14 @@ public sealed class ParakeetTranscriber : ITranscriber
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "TalkToText", "models");
 
-        yield return Path.Combine(localAppData, "parakeet-v2");
         yield return Path.Combine(localAppData, "parakeet-v3");
+        yield return Path.Combine(localAppData, "parakeet-v2");
 
         // AppContext.BaseDirectory, not Assembly.Location — the latter returns an empty
         // string in a single-file app, which silently resolves paths against the current
         // directory instead.
-        yield return Path.Combine(AppContext.BaseDirectory, "models", "parakeet-v2");
         yield return Path.Combine(AppContext.BaseDirectory, "models", "parakeet-v3");
+        yield return Path.Combine(AppContext.BaseDirectory, "models", "parakeet-v2");
     }
 
     /// <summary>Finds a directory containing a complete model, or null.</summary>
@@ -140,27 +140,38 @@ public sealed class ParakeetTranscriber : ITranscriber
         IReadOnlyList<string> biasPhrases,
         CancellationToken cancellationToken)
     {
-        if (_recognizer is null || samples.Length == 0) return ValueTask.FromResult(string.Empty);
+        if (samples.Length == 0) return ValueTask.FromResult(string.Empty);
 
         cancellationToken.ThrowIfCancellationRequested();
 
         // One decode at a time: dictation and a meeting transcript share this recognizer, and
         // sherpa-onnx does not promise that concurrent decodes on one recognizer are safe.
+        // Checked inside the lock, because the model may be disposed between check and use.
         lock (_decodeGate)
         {
-            using var stream = _recognizer.CreateStream();
+            if (_recognizer is not { } recognizer) return ValueTask.FromResult(string.Empty);
+
+            using var stream = recognizer.CreateStream();
             stream.AcceptWaveform(AudioChunk.SampleRate, samples.ToArray());
-            _recognizer.Decode(stream);
+            recognizer.Decode(stream);
 
             return ValueTask.FromResult(stream.Result.Text?.Trim() ?? string.Empty);
         }
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Under the decode lock: the model can be swapped while the app runs, after a download,
+    /// and that must not free the recognizer under a decode in progress.
+    /// </remarks>
     public ValueTask DisposeAsync()
     {
-        _recognizer?.Dispose();
-        _recognizer = null;
+        lock (_decodeGate)
+        {
+            _recognizer?.Dispose();
+            _recognizer = null;
+        }
+
         return ValueTask.CompletedTask;
     }
 }

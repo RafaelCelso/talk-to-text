@@ -155,6 +155,9 @@ autocontido que o CI publica, roda `--selftest` nele e o empacota com
   Windows;
 - mantém o modelo e as configurações na desinstalação, para uma reinstalação aproveitá-los.
 
+Se o download do modelo falhar durante a instalação, o app o baixa sozinho ao abrir, com
+progresso na tela Início — o usuário não precisa rodar nada no terminal.
+
 Ele **não é assinado**, então o SmartScreen mostra "O Windows protegeu o computador" em outras
 máquinas — *Mais informações → Executar assim mesmo*.
 

@@ -19,6 +19,9 @@ public static class Icons
     /// <summary>Upload: an arrow rising out of a tray.</summary>
     public const string Upload = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12";
 
+    /// <summary>Download: an arrow falling into a tray.</summary>
+    public const string Download = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3";
+
     /// <summary>An audio file: a page with a folded corner and level bars.</summary>
     public const string AudioFile = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13v4 M12 11v8 M16 14v2";
 

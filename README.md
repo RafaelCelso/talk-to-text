@@ -26,8 +26,9 @@ versão para macOS na raiz do repositório, de onde o projeto nasceu.
   sobre as transcrições.
 - **Exportação** — Word, PDF, Markdown ou texto puro.
 
-Os modelos são baixados sob demanda: Parakeet (~670 MB) na instalação, o modelo de resumo
-(~2 GB) só quando você pede o primeiro resumo.
+Os modelos são baixados sem terminal nenhum: o Parakeet v3 (~670 MB) pelo instalador — ou pelo
+próprio app ao abrir, se o download da instalação falhar — e o modelo de resumo (~2 GB) só
+quando você pede o primeiro resumo.
 
 ---
 
@@ -49,7 +50,8 @@ por usuário (sem UAC) em `%LOCALAPPDATA%\Programs\Talk-to-Text` e baixa o Parak
 O instalador **não é assinado**: no primeiro uso o SmartScreen mostra "O Windows protegeu
 o computador" — clique em *Mais informações → Executar assim mesmo*.
 
-Para baixar o modelo manualmente, veja [`docs/PARAKEET-WINDOWS.md`](docs/PARAKEET-WINDOWS.md).
+Detalhes do modelo de voz (e instalação manual sem internet) em
+[`docs/PARAKEET-WINDOWS.md`](docs/PARAKEET-WINDOWS.md).
 
 ---
 

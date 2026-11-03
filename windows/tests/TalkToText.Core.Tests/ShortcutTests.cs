@@ -284,6 +284,56 @@ public sealed class ActivationModeTests
         injector.Injected.ShouldBe(["slow"]);
     }
 
+    /// <summary>
+    /// The model can arrive while the app runs — downloaded from the app itself. A dictation
+    /// before it types nothing; the first one after must load it, not reuse the failed load.
+    /// </summary>
+    [Fact]
+    public async Task A_model_downloaded_while_running_is_loaded_by_the_next_dictation()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        var transcriber = new LateModelTranscriber("depois do download");
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(1.0), hotkey, transcriber, injector, () => [], new FakeClock());
+        engine.Start();
+
+        hotkey.Press();
+        await WaitFor(() => engine.Level > 0);
+        hotkey.Release();
+        await WaitFor(() => engine.State == DictationState.Idle);
+        injector.Injected.ShouldBeEmpty();
+
+        transcriber.Installed = true;
+
+        hotkey.Press();
+        await WaitFor(() => engine.Level > 0);
+        hotkey.Release();
+        await WaitFor(() => injector.Injected.Count > 0 && engine.State == DictationState.Idle);
+
+        injector.Injected.ShouldBe(["depois do download"]);
+    }
+
+    /// <summary>Loads only once <see cref="Installed"/> is set, like a model not yet downloaded.</summary>
+    private sealed class LateModelTranscriber(string text) : ITranscriber
+    {
+        public volatile bool Installed;
+
+        public bool IsReady { get; private set; }
+
+        public ValueTask<bool> LoadAsync(CancellationToken cancellationToken)
+        {
+            IsReady = Installed;
+            return ValueTask.FromResult(IsReady);
+        }
+
+        public ValueTask<string> TranscribeAsync(
+            ReadOnlyMemory<float> samples, IReadOnlyList<string> biasPhrases, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(IsReady ? text : string.Empty);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     /// <summary>Blocks for half a second before the first chunk, like a real device opening.</summary>
     private sealed class SlowStartCapture(FakeAudioCapture inner) : IAudioCapture
     {

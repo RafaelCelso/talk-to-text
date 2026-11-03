@@ -92,23 +92,11 @@ public sealed class HomeView : UserControl
         page.Children.Add(Ui.Docked(Ui.PageHeader("Início", "Fale e o texto aparece onde o cursor estiver."), Dock.Top));
         page.Children.Add(Ui.Docked(hero, Dock.Top));
 
-        if (composition is not null && !composition.IsModelInstalled)
+        // Off Windows there is no engine to give a model to, so nothing to download.
+        if (composition is { IsPlatformAvailable: true })
         {
-            var banner = Ui.Card(new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = Tokens.Space.Base,
-                Children =
-                {
-                    Ui.Dot(Tokens.Colors.Warning),
-                    Ui.Text(
-                        "O modelo de voz não está instalado, então ainda não é possível transcrever. "
-                        + "Reinstale o Talk-to-Text ou veja docs/PARAKEET-WINDOWS.md.",
-                        Tokens.Fonts.Body),
-                },
-            }, Tokens.Space.Base);
-            banner.Margin = new Thickness(0, Tokens.Space.Base, 0, 0);
-            page.Children.Add(Ui.Docked(banner, Dock.Top));
+            ModelBanner = new SpeechModelBanner(composition);
+            page.Children.Add(Ui.Docked(ModelBanner, Dock.Top));
         }
 
         var historyTitle = Ui.SectionTitle("Histórico");
@@ -128,6 +116,9 @@ public sealed class HomeView : UserControl
 
     /// <summary>The waveform. Exposed for headless tests.</summary>
     public Waveform Waveform => _waveform;
+
+    /// <summary>The speech-model notice, when the platform layer is there. Exposed for headless tests.</summary>
+    public SpeechModelBanner? ModelBanner { get; }
 
     /// <summary>The status line. Exposed for headless tests.</summary>
     public string StatusText => _status.Text ?? string.Empty;

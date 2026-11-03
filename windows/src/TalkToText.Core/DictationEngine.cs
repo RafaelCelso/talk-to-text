@@ -205,14 +205,21 @@ public sealed class DictationEngine : IAsyncDisposable
     /// engine reads as "nothing was said" — so a missing load is silent. Every transcription
     /// awaits this. <c>Task.Run</c> because loading is synchronous and CPU-heavy, and
     /// <see cref="Start"/> is called from the UI thread.
+    /// <para>
+    /// A finished load is reused only while the transcriber is still ready. One that found no
+    /// model, or a model that was swapped out after a download, is loaded again — so a model
+    /// downloaded while the app runs works without a restart.
+    /// </para>
     /// </remarks>
     private Task<bool> EnsureLoadedAsync()
     {
-        if (_loading is { } existing) return existing;
+        var existing = _loading;
+        if (existing is not null && (!existing.IsCompleted || _transcriber.IsReady)) return existing;
 
         var loading = Task.Run(async () =>
             await _transcriber.LoadAsync(CancellationToken.None).ConfigureAwait(false));
-        return Interlocked.CompareExchange(ref _loading, loading, null) ?? loading;
+        var previous = Interlocked.CompareExchange(ref _loading, loading, existing);
+        return previous == existing ? loading : previous!;
     }
 
     /// <summary>

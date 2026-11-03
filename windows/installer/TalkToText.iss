@@ -6,6 +6,9 @@
 ; Why per-user: no UAC prompt, and %LOCALAPPDATA% is where the app looks for its model
 ; (see docs/PARAKEET-WINDOWS.md — Program Files would stop the app updating it).
 ;
+; The app downloads the same files itself if this download fails (SpeechModel.cs), so
+; "continue without it" never leaves the user at a terminal.
+;
 ; Why the model is downloaded rather than bundled: it is ~670 MB against ~117 MB for the
 ; app, and an installer that size is painful to pass around. It is fetched once, checked
 ; against SHA-256, and skipped when a complete copy is already there.
@@ -46,11 +49,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [CustomMessages]
 brazilianportuguese.ModelTitle=Baixando o modelo de voz
 brazilianportuguese.ModelDescription=O Parakeet v3 (~670 MB, 25 idiomas, incluindo português) e os modelos de reunião (~27 MB) são baixados uma única vez. Depois disso tudo funciona offline.
-brazilianportuguese.ModelFailed=Não foi possível baixar o modelo de voz:%n%n%1%n%nContinuar sem ele? O Talk-to-Text não transcreve até o modelo ser instalado (veja docs/PARAKEET-WINDOWS.md).
+brazilianportuguese.ModelFailed=Não foi possível baixar o modelo de voz:%n%n%1%n%nContinuar sem ele? O Talk-to-Text baixa o modelo sozinho quando for aberto com internet.
 brazilianportuguese.StartupTask=Iniciar o Talk-to-Text junto com o Windows
 english.ModelTitle=Downloading the speech model
 english.ModelDescription=Parakeet v3 (~670 MB, 25 languages) and the meeting models (~27 MB) are downloaded once. After that, everything works offline.
-english.ModelFailed=The speech model could not be downloaded:%n%n%1%n%nContinue without it? Talk-to-Text cannot transcribe until the model is installed (see docs/PARAKEET-WINDOWS.md).
+english.ModelFailed=The speech model could not be downloaded:%n%n%1%n%nContinue without it? Talk-to-Text downloads it by itself the next time it opens with an internet connection.
 english.StartupTask=Start Talk-to-Text when Windows starts
 
 [Tasks]

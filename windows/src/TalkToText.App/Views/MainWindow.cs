@@ -48,6 +48,7 @@ public sealed class MainWindow : Window
     private readonly HomeView _home;
     private readonly TextBlock _shortcutHint;
     private readonly DispatcherTimer _poll;
+    private readonly ContentControl _modelStatus = new();
 
     private Control? _dictionary;
     private Control? _meetingsView;
@@ -142,6 +143,9 @@ public sealed class MainWindow : Window
         _poll.Tick += (_, _) => _home.Sync();
         _poll.Start();
 
+        UpdateModelStatus();
+        SpeechModelDownload.Changed += (_, _) => UpdateModelStatus();
+
         if (_composition is not null)
         {
             _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(UpdateShortcutHint);
@@ -225,7 +229,7 @@ public sealed class MainWindow : Window
         {
             Spacing = Tokens.Space.Tight,
             Margin = new Thickness(Tokens.Space.Snug, 0, Tokens.Space.Snug, Tokens.Space.Tight),
-            Children = { ModelStatus(), _shortcutHint },
+            Children = { _modelStatus, _shortcutHint },
         };
 
         return new DockPanel
@@ -280,8 +284,25 @@ public sealed class MainWindow : Window
         Background = new SolidColorBrush(Tokens.Colors.Window, blurred ? 0.78 : 1);
     }
 
+    /// <summary>Redraws the sidebar's model line: ready, missing, or downloading.</summary>
+    private void UpdateModelStatus() => _modelStatus.Content = ModelStatus();
+
     private StackPanel ModelStatus()
     {
+        if (SpeechModelDownload.IsRunning)
+        {
+            return new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Tokens.Space.Snug,
+                Children =
+                {
+                    Ui.Dot(Tokens.Colors.Warning, 7),
+                    Ui.Text($"Baixando modelo… {SpeechModelDownload.Fraction:P0}", Tokens.Fonts.Caption, Tokens.Brushes.Muted),
+                },
+            };
+        }
+
         var ready = _composition?.IsModelInstalled ?? false;
         return new StackPanel
         {
