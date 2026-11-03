@@ -293,7 +293,11 @@ modo comando** (desligado por padrão, Shift + Win) é um segundo `ShortcutDetec
 *depois que os modificadores do usuário foram soltos* (Ctrl+C com Shift pressionado é
 Ctrl+Shift+C) e restaura a área de transferência, e o resultado da IA é colado sobre a seleção;
 sem nada selecionado — detectado pelo número de sequência da área de transferência, não pelo
-conteúdo — ele escreve o que foi pedido. Teste as partes à mão com `TalkToText.exe --try-ai` e
+conteúdo — ele escreve o que foi pedido. **Tradução tem prompt próprio** (`App/CommandPrompt.cs`): o prompt geral, com
+"escreva em português a menos que…", deixava metade da frase sem traduzir no Qwen 3B. Quando a
+instrução pede tradução, o app reconhece o idioma e manda só o texto selecionado com um prompt de
+tradução em inglês que nomeia o idioma. Os outros comandos mantêm o layout antigo — cercar o texto
+com marcadores deixou o "deixa mais formal" quase sem efeito. Confira mudanças com `--try-ai`. Teste as partes à mão com `TalkToText.exe --try-ai` e
 `--read-selection`. A configuração inicial tem uma etapa de microfone que mostra o nível e o que
 foi ouvido, usando o atalho real.
 

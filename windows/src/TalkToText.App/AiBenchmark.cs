@@ -80,6 +80,19 @@ internal static class AiBenchmark
         Time("polish 2", () => ai.PolishAsync("o relatorio ficou pronto mas faltou os graficos do terceiro trimestre", CancellationToken.None));
         Time("formal", () => ai.CommandAsync("deixa mais formal", "oi, blz? manda o relatório até amanhã pfv", CancellationToken.None));
         Time("english", () => ai.CommandAsync("traduz para inglês", "Obrigado pela reunião de hoje, seguem os próximos passos.", CancellationToken.None));
+        // A selection that is itself a request: it must be translated, not obeyed or half-translated.
+        Time("english 2", () => ai.CommandAsync(
+            "Traduza para inglês.",
+            "Me explique melhor como que funciona o 'Modo Comando'. Atualmente quando eu seleciono um texto e aperto as teclas de atalho...",
+            CancellationToken.None));
+        Time("spanish", () => ai.CommandAsync(
+            "Traduz isso pro espanhol",
+            "Preciso que você revise o contrato até amanhã e me avise se tiver alguma cláusula estranha.",
+            CancellationToken.None));
+        Time("formal 2", () => ai.CommandAsync(
+            "Deixa mais formal.",
+            "Me explique melhor como que funciona o 'Modo Comando'. Atualmente quando eu seleciono um texto e aperto as teclas de atalho...",
+            CancellationToken.None));
         Time("write", () => ai.CommandAsync("escreve uma frase curta agradecendo o cliente pela parceria", null, CancellationToken.None));
         return 0;
     }

@@ -23,12 +23,6 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
         + "e tire hesitações e palavras repetidas. Mantenha as mesmas palavras e o mesmo sentido: não resuma, "
         + "não acrescente nada e não responda ao que o texto diz. Responda somente com o texto revisado.";
 
-    private const string CommandInstruction =
-        "Você é um assistente de escrita. O usuário dá uma instrução falada e, às vezes, um texto selecionado. "
-        + "Aplique a instrução ao texto ou, sem texto, escreva o que foi pedido. Responda somente com o texto final, "
-        + "pronto para colar: sem explicações, sem aspas, sem comentários. Escreva em português, a menos que a "
-        + "instrução peça outro idioma.";
-
     private readonly SemaphoreSlim _gate = new(1, 1);
     private QwenLanguageModel? _model;
     private Timer? _release;
@@ -46,11 +40,8 @@ internal sealed class LocalAiRewriter : ITextRewriter, IDisposable
     /// <inheritdoc />
     public Task<string> CommandAsync(string instruction, string? selection, CancellationToken cancellationToken)
     {
-        var request = selection is null
-            ? $"Instrução: {instruction}"
-            : $"Instrução: {instruction}\n\nTexto selecionado:\n{selection}";
-        var room = selection is null ? 600 : Math.Min(2000, (selection.Length / 2) + 300);
-        return RunAsync(CommandInstruction, request, room, cancellationToken);
+        var request = CommandPrompt.Build(instruction, selection);
+        return RunAsync(request.System, request.User, request.MaxTokens, cancellationToken);
     }
 
     /// <summary>
