@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using TalkToText.App.Views;
 using TalkToText.Core;
@@ -17,6 +18,37 @@ public sealed class AiChoicePickerTests
         var picker = new AiChoicePicker(null);
 
         picker.CloudSelected.ShouldBeFalse();
+    }
+
+    [AvaloniaFact]
+    public void The_keys_page_is_a_link_to_the_chosen_provider()
+    {
+        var picker = new AiChoicePicker(null);
+
+        picker.Choose(cloud: true);
+        picker.ChooseProvider(AiProvider.OpenAI);
+        picker.KeysLink.ShouldBe(new Uri("https://platform.openai.com/api-keys"));
+
+        picker.ChooseProvider(AiProvider.Gemini);
+        picker.KeysLink.ShouldBe(new Uri("https://aistudio.google.com/apikey"));
+    }
+
+    [AvaloniaFact]
+    public void Everything_clickable_shows_the_hand_and_disabled_controls_do_not()
+    {
+        var button = new Button();
+        var disabled = new Button { IsEnabled = false };
+        var toggle = new ToggleSwitch();
+        var radio = new RadioButton();
+        var select = new ComboBox();
+        var window = new Window { Content = new StackPanel { Children = { button, disabled, toggle, radio, select } } };
+        window.Show();
+
+        Cursor[] hands = [button.Cursor!, toggle.Cursor!, radio.Cursor!, select.Cursor!];
+        hands.ShouldAllBe(c => c != null);
+        hands.Distinct().Count().ShouldBe(1);
+        disabled.Cursor.ShouldNotBeNull();
+        disabled.Cursor.ShouldNotBe(button.Cursor);
     }
 
     [AvaloniaFact]

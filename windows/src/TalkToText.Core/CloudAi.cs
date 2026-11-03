@@ -35,8 +35,12 @@ public enum AiProvider
 /// <summary>A cloud provider as the settings show it.</summary>
 /// <param name="Provider">Which one.</param>
 /// <param name="Name">Its name — "OpenAI (GPT)".</param>
-/// <param name="KeysPage">Where the user creates a key.</param>
-public sealed record CloudProviderInfo(AiProvider Provider, string Name, string KeysPage);
+/// <param name="KeysPage">Where the user creates a key, without the scheme — as it is shown.</param>
+public sealed record CloudProviderInfo(AiProvider Provider, string Name, string KeysPage)
+{
+    /// <summary>The page, to open in the browser.</summary>
+    public Uri KeysUri => new("https://" + KeysPage);
+}
 
 /// <summary>One model a provider offers this key.</summary>
 /// <param name="Id">What the API calls it — "gpt-4o-mini".</param>

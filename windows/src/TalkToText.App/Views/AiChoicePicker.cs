@@ -34,7 +34,7 @@ public sealed class AiChoicePicker : UserControl
     private readonly Control _modelsRow;
     private readonly TextBox _key;
     private readonly Button _validate;
-    private readonly TextBlock _keyHint;
+    private readonly HyperlinkButton _keysLink = new() { Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _status;
     private CancellationTokenSource? _checking;
     private bool _filling;
@@ -78,7 +78,12 @@ public sealed class AiChoicePicker : UserControl
         AutomationProperties.SetName(_key, "Chave de API");
 
         _validate = Ui.Primary("Validar chave");
-        _keyHint = Ui.Text(string.Empty, Tokens.Fonts.Caption, Tokens.Brushes.Muted);
+        AutomationProperties.SetName(_keysLink, "Abrir a página de chaves do provedor");
+        var keyHint = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children = { Ui.Text("Crie uma chave em ", Tokens.Fonts.Caption, Tokens.Brushes.Muted), _keysLink },
+        };
         _status = Ui.Text(string.Empty, Tokens.Fonts.Label, Tokens.Brushes.Muted);
         _status.TextWrapping = TextWrapping.Wrap;
 
@@ -98,7 +103,7 @@ public sealed class AiChoicePicker : UserControl
             Children =
             {
                 Ui.Labelled("Provedor", _provider),
-                new StackPanel { Spacing = Tokens.Space.Tight, Children = { Ui.Labelled("Chave de API", keyRow), _keyHint } },
+                new StackPanel { Spacing = Tokens.Space.Tight, Children = { Ui.Labelled("Chave de API", keyRow), keyHint } },
                 _status,
                 _modelsRow,
             },
@@ -144,6 +149,9 @@ public sealed class AiChoicePicker : UserControl
     /// <summary>The status line under the key. Exposed for headless tests.</summary>
     public string StatusText => _status.Text ?? string.Empty;
 
+    /// <summary>Where the link under the key leads. Exposed for headless tests.</summary>
+    public Uri? KeysLink => _keysLink.NavigateUri;
+
     /// <summary>The models offered after the key was checked. Exposed for headless tests.</summary>
     public IReadOnlyList<string> ModelIds => _models.Items.OfType<ComboBoxItem>().Select(i => (string)i.Tag!).ToList();
 
@@ -185,7 +193,17 @@ public sealed class AiChoicePicker : UserControl
     private void LoadProvider()
     {
         var provider = SelectedProvider;
-        _keyHint.Text = $"Crie uma chave em {CloudAi.Info(provider).KeysPage}";
+        // A link: the system opens it in the default browser — a new tab when it is already open.
+        var info = CloudAi.Info(provider);
+        _keysLink.NavigateUri = info.KeysUri;
+        _keysLink.Content = new TextBlock
+        {
+            Text = info.KeysPage,
+            FontSize = Tokens.Fonts.Caption,
+            Foreground = Tokens.Brushes.Primary,
+            TextDecorations = TextDecorations.Underline,
+        };
+        ToolTip.SetTip(_keysLink, $"Abrir {info.KeysUri} no navegador");
         ClearModels();
 
         var saved = _composition?.ApiKeys.Get(provider);

@@ -68,7 +68,11 @@ public partial class App : Application
     }
 
     /// <inheritdoc />
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+        Styles.Add(Design.PointerCursors.Create());
+    }
 
     /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()

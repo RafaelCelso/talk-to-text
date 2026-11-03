@@ -31,6 +31,7 @@ public sealed class TestApp : Application
     {
         RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
         Styles.Add(new FluentTheme());
+        Styles.Add(PointerCursors.Create());
     }
 }
 
