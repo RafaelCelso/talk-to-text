@@ -235,6 +235,56 @@ public sealed class CloudAiTests
         handler.Bodies.Single().ShouldContain("\"model\":\"grok-3\"");
     }
 
+    private const string HighDemand = """{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}""";
+
+    [Fact]
+    public async Task An_overloaded_provider_is_asked_again()
+    {
+        var calls = 0;
+        using var handler = new FakeHandler(_ => ++calls < 3
+            ? Reply(HttpStatusCode.ServiceUnavailable, HighDemand)
+            : Reply(HttpStatusCode.OK, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]}}]}\n\n"));
+        using var http = new HttpClient(handler);
+        using var model = new CloudLanguageModel(http, AiProvider.Gemini, "key", "gemini-3.8-flash") { RetryDelays = [TimeSpan.Zero, TimeSpan.Zero] };
+
+        var pieces = new List<string>();
+        await foreach (var piece in model.CompleteAsync("sys", "oi", 50, CancellationToken.None)) pieces.Add(piece);
+
+        pieces.ShouldBe(["Hello"]);
+        handler.Bodies.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Asking_again_gives_up_and_says_why()
+    {
+        using var handler = new FakeHandler(_ => Reply(HttpStatusCode.ServiceUnavailable, HighDemand));
+        using var http = new HttpClient(handler);
+        using var model = new CloudLanguageModel(http, AiProvider.Gemini, "key", "gemini-3.8-flash") { RetryDelays = [TimeSpan.Zero, TimeSpan.Zero] };
+
+        var error = await Should.ThrowAsync<HttpRequestException>(async () =>
+        {
+            await foreach (var _ in model.CompleteAsync("sys", "oi", 50, CancellationToken.None)) { }
+        });
+
+        error.Message.ShouldStartWith("O provedor está sobrecarregado");
+        handler.Requests.Count.ShouldBe(3); // the first try and two more
+    }
+
+    [Fact]
+    public async Task A_refusal_is_not_asked_again()
+    {
+        using var handler = new FakeHandler(_ => Reply(HttpStatusCode.NotFound, """{"error":{"message":"model not found","code":"model_not_found"}}"""));
+        using var http = new HttpClient(handler);
+        using var model = new CloudLanguageModel(http, AiProvider.OpenAI, "key", "gpt-9") { RetryDelays = [TimeSpan.Zero, TimeSpan.Zero] };
+
+        await Should.ThrowAsync<HttpRequestException>(async () =>
+        {
+            await foreach (var _ in model.CompleteAsync("sys", "oi", 50, CancellationToken.None)) { }
+        });
+
+        handler.Requests.Count.ShouldBe(1);
+    }
+
     [Fact]
     public void Keys_are_stored_encrypted_and_can_be_forgotten()
     {

@@ -461,6 +461,17 @@ public sealed class CloudLanguageModel(HttpClient http, AiProvider provider, str
     /// <summary>The model id.</summary>
     public string Model => model;
 
+    /// <summary>
+    /// Pauses before asking again when the provider is momentarily overloaded. Gemini's
+    /// 3.x models answered "high demand" (503) to four commands in a row while their own
+    /// guidance is to retry; a few seconds of waiting beats a failed command.
+    /// </summary>
+    public IReadOnlyList<TimeSpan> RetryDelays { get; init; } = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
+
+    /// <summary>Overloaded or briefly broken — not a refusal that asking again would repeat.</summary>
+    private static bool IsMomentary(HttpStatusCode? status) =>
+        (int?)status is 500 or 502 or 503 or 504 or 529;
+
     /// <inheritdoc />
     /// <remarks>
     /// Every current model takes far more, but a long meeting is still cut into parts at
@@ -477,11 +488,31 @@ public sealed class CloudLanguageModel(HttpClient http, AiProvider provider, str
         string system, string user, int maxTokens, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var (path, body) = CloudAi.CompletionRequest(provider, model, system, user, Math.Max(maxTokens, MinimumAnswerTokens));
-        using var request = CloudAi.Request(HttpMethod.Post, provider, key, path);
-        request.Content = new ByteArrayContent(body);
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
-        using var response = await CloudAi.SendAsync(http, request, stream: true, cancellationToken).ConfigureAwait(false);
+        HttpResponseMessage sent;
+        for (var attempt = 0; ; attempt++)
+        {
+            // A request message can be sent only once, so each attempt builds its own.
+            var request = CloudAi.Request(HttpMethod.Post, provider, key, path);
+            request.Content = new ByteArrayContent(body);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+            try
+            {
+                sent = await CloudAi.SendAsync(http, request, stream: true, cancellationToken).ConfigureAwait(false);
+                break;
+            }
+            catch (HttpRequestException e) when (attempt < RetryDelays.Count && IsMomentary(e.StatusCode))
+            {
+                await Task.Delay(RetryDelays[attempt], cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                request.Dispose();
+            }
+        }
+
+        using var response = sent;
         using var reader = new StreamReader(
             await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false), Encoding.UTF8);
 
