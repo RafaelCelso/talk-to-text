@@ -618,7 +618,7 @@ public sealed class ChatPage : UserControl
         Background = Tokens.Brushes.PrimaryGlass,
         BorderBrush = Tokens.Brushes.PrimaryRim,
         BorderThickness = new Thickness(1),
-        Child = Ui.Text(text, Tokens.Fonts.Body, new SolidColorBrush(Tokens.Colors.OnPrimary)),
+        Child = Ui.Selectable(text, Tokens.Fonts.Body, new SolidColorBrush(Tokens.Colors.OnPrimary), selection: Tokens.Brushes.Tint(Colors.White, 0.35)),
     };
 
     private static Grid AnswerBubble(Control body, TextBlock sources)

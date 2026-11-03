@@ -746,7 +746,9 @@ public sealed class ChatView : UserControl
             BorderBrush = mine ? Tokens.Brushes.PrimaryRim : Tokens.Brushes.GlassRimSubtle,
             BorderThickness = new Thickness(1),
             HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-            Child = Ui.Text(message.Text, Tokens.Fonts.Body, mine ? new SolidColorBrush(Tokens.Colors.OnPrimary) : null),
+            Child = mine
+                ? Ui.Selectable(message.Text, Tokens.Fonts.Body, new SolidColorBrush(Tokens.Colors.OnPrimary), selection: Tokens.Brushes.Tint(Colors.White, 0.35))
+                : Ui.Selectable(message.Text, Tokens.Fonts.Body),
         };
         _bubbles[_transcript.Messages.IndexOf(message)] = bubble;
 

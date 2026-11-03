@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Themes.Fluent;
 using TalkToText.App.Controls;
@@ -740,5 +741,26 @@ public sealed class DesignSystemTests
     {
         Tokens.Motion.Standard.Ease(0.25).ShouldBeGreaterThan(0.5);
         Tokens.Motion.Overlay.ShouldBe(TimeSpan.FromMilliseconds(280));
+    }
+}
+
+/// <summary>Content the user reads can be selected and copied.</summary>
+public sealed class SelectableTextTests
+{
+    [AvaloniaFact]
+    public void A_summary_is_selectable_text_with_a_copy_menu()
+    {
+        var summary = Ui.Markdown("## Decisões\n- Lançar na segunda\nTexto corrido.");
+        var window = new Window { Content = summary };
+        window.Show();
+
+        var blocks = summary.GetLogicalDescendants().OfType<TextBlock>().ToList();
+        blocks.Count.ShouldBe(3);
+        blocks.ShouldAllBe(b => b is SelectableTextBlock);
+
+        var paragraph = (SelectableTextBlock)blocks[^1];
+        paragraph.SelectAll();
+        paragraph.SelectedText.ShouldBe("Texto corrido.");
+        paragraph.ContextMenu.ShouldNotBeNull();
     }
 }

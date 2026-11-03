@@ -360,6 +360,48 @@ public static class Ui
     }
 
     /// <summary>
+    /// Text the user may want to copy — a dictation, a message, a summary, an answer: selectable
+    /// with the mouse, copied with Ctrl+C or from its right-click menu.
+    /// </summary>
+    /// <remarks>
+    /// Only for content. Labels, buttons and headings stay plain <see cref="Text"/>: a selectable
+    /// block takes the pointer, and inside a button it would swallow the click. The highlight
+    /// defaults to the primary colour; pass another for text on a primary-tinted bubble, where
+    /// that one would not show.
+    /// </remarks>
+    public static SelectableTextBlock Selectable(
+        string text, double size = Tokens.Fonts.Body, IBrush? brush = null,
+        FontWeight weight = FontWeight.Normal, IBrush? selection = null)
+    {
+        var block = new SelectableTextBlock
+        {
+            Text = text,
+            FontFamily = Tokens.Fonts.Sans,
+            FontSize = size,
+            FontWeight = weight,
+            Foreground = brush ?? Tokens.Brushes.Foreground,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            SelectionBrush = selection ?? Tokens.Brushes.Tint(Tokens.Colors.Primary, 0.45),
+        };
+
+        // Copies the selection, or the whole text when nothing is selected — right-click then
+        // "Copiar" is the quick way to take one message.
+        var copy = new MenuItem { Header = "Copiar", InputGesture = new Avalonia.Input.KeyGesture(Avalonia.Input.Key.C, Avalonia.Input.KeyModifiers.Control) };
+        copy.Click += async (_, _) =>
+        {
+            var selected = block.SelectedText;
+            var clipboard = TopLevel.GetTopLevel(block)?.Clipboard;
+            if (clipboard is not null) await clipboard.SetTextAsync(selected.Length > 0 ? selected : block.Text).ConfigureAwait(true);
+        };
+        var all = new MenuItem { Header = "Selecionar tudo" };
+        all.Click += (_, _) => block.SelectAll();
+        block.ContextMenu = new ContextMenu { Items = { copy, all } };
+
+        return block;
+    }
+
+    /// <summary>
     /// Renders the small Markdown subset the summary model writes: <c>##</c> headings,
     /// <c>-</c> bullets and paragraphs. Bold markers are dropped rather than shown.
     /// </summary>
@@ -385,7 +427,7 @@ public static class Ui
             {
                 section++;
                 accent = Tokens.Colors.SpectrumAt(sections == 1 ? 0 : (double)section / (sections - 1));
-                var heading = Text(line.TrimStart('#').Trim().ToUpperInvariant(), Tokens.Fonts.Body, Brushes.White, FontWeight.Bold);
+                var heading = Selectable(line.TrimStart('#').Trim().ToUpperInvariant(), Tokens.Fonts.Body, Brushes.White, FontWeight.Bold);
                 heading.LetterSpacing = 0.8;
                 heading.Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : Tokens.Space.Base, 0, Tokens.Space.Hair);
                 panel.Children.Add(heading);
@@ -404,7 +446,7 @@ public static class Ui
                     // Centred on the first line of a 13 px body.
                     Margin = new Thickness(Tokens.Space.Hair, 7, 0, 0),
                 });
-                var body = Text(line[2..].Trim(), Tokens.Fonts.Body, Tokens.Brushes.Foreground);
+                var body = Selectable(line[2..].Trim(), Tokens.Fonts.Body, Tokens.Brushes.Foreground);
                 body.LineHeight = 19;
                 body.Margin = new Thickness(Tokens.Space.Base - Tokens.Space.Hair, 0, 0, 0);
                 Grid.SetColumn(body, 1);
@@ -413,7 +455,7 @@ public static class Ui
             }
             else
             {
-                var paragraph = Text(line, Tokens.Fonts.Body);
+                var paragraph = Selectable(line, Tokens.Fonts.Body);
                 paragraph.LineHeight = 19;
                 panel.Children.Add(paragraph);
             }

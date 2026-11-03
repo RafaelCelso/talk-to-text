@@ -134,7 +134,7 @@ public sealed class TranscriptionsView : UserControl
         };
 
         var body = new StackPanel { Spacing = Tokens.Space.Snug };
-        body.Children.Add(Ui.Text(record.Text, Tokens.Fonts.Body));
+        body.Children.Add(Ui.Selectable(record.Text, Tokens.Fonts.Body));
         if (record.Corrections is { Count: > 0 } corrections) body.Children.Add(BuildCorrectionBadges(corrections));
         body.Children.Add(meta);
 
